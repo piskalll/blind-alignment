@@ -3,26 +3,105 @@
 :root {
   --navy: #1E293B;
   --emerald: #0F766E;
-  --amber: #D97706;
-  --crimson: #DC2626;
+  --amber: #B45309;
+  --crimson: #B91C1C;
 
   --surface-primary: #FFFFFF;
-  --surface-subtle: #F1F5F9;
+  --surface-subtle: #F8FAF7;
   --text-default: #1E293B;
   --text-muted: #475569;
-  --border-default: #E2E8F0;
+  --border-default: #CBD5E1;
   --border-focus: #0F766E;
   --status-aligned: #0F766E;
   --status-conflict: #B91C1C;
 }
 
+[data-theme="dark"] {
+  --surface-primary: #1E293B;
+  --surface-subtle: #0F172A;
+  --text-default: #F8FAFC;
+  --text-muted: #CBD5E1;
+  --border-default: #334155;
+  --border-focus: #5EEAD4;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5rem;
+}
+
 body {
   background-color: var(--surface-subtle);
   color: var(--text-default);
-  font-family: var(--font-sans), system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  font-family: var(--font-sans), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   margin: 0;
   padding: 0;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Dark theme surface overrides so Tailwind utility cards and text hold WCAG AA contrast */
+[data-theme="dark"] .bg-\[\#F8FAF7\],
+[data-theme="dark"] .bg-\[\#F1F5F9\],
+[data-theme="dark"] .bg-\[\#F8FAFC\] {
+  background-color: #0F172A !important;
+}
+
+[data-theme="dark"] .bg-white,
+[data-theme="dark"] .bg-\[\#FFFFFF\] {
+  background-color: #1E293B !important;
+  color: #F8FAFC !important;
+}
+
+[data-theme="dark"] .hover\:bg-\[\#FFFFFF\]:hover,
+[data-theme="dark"] .hover\:bg-\[\#F1F5F9\]:hover,
+[data-theme="dark"] .hover\:bg-\[\#F8FAF7\]:hover {
+  background-color: #334155 !important;
+  color: #F8FAFC !important;
+}
+
+[data-theme="dark"] .bg-slate-50,
+[data-theme="dark"] .bg-slate-50\/40,
+[data-theme="dark"] .bg-slate-50\/50,
+[data-theme="dark"] .bg-slate-50\/60,
+[data-theme="dark"] .bg-slate-100 {
+  background-color: #0F172A !important;
+  color: #E2E8F0 !important;
+}
+
+[data-theme="dark"] .text-\[\#1E293B\],
+[data-theme="dark"] .text-slate-900,
+[data-theme="dark"] .text-slate-800 {
+  color: #F8FAFC !important;
+}
+
+[data-theme="dark"] .text-\[\#475569\],
+[data-theme="dark"] .text-slate-700,
+[data-theme="dark"] .text-slate-600,
+[data-theme="dark"] .text-slate-500 {
+  color: #CBD5E1 !important;
+}
+
+[data-theme="dark"] .border-\[\#E2E8F0\],
+[data-theme="dark"] .border-\[\#CBD5E1\],
+[data-theme="dark"] .border-slate-200,
+[data-theme="dark"] .border-slate-300,
+[data-theme="dark"] .border-slate-100 {
+  border-color: #334155 !important;
+}
+
+[data-theme="dark"] .divide-\[\#E2E8F0\] > :not([hidden]) ~ :not([hidden]) {
+  border-color: #334155 !important;
+}
+
+/* Visible keyboard focus ring meeting 3:1 non-text contrast in both themes (R-32) */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--border-focus) !important;
+  outline-offset: 2px !important;
 }
 
 .font-serif-quote {

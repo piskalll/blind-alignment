@@ -120,8 +120,8 @@ export const DesignSystemShowcase: React.FC = () => {
             </div>
             <div className="flex items-center justify-between p-3">
               <span className="font-mono text-slate-800">--color-text-muted</span>
-              <span className="text-slate-600">Secondary copy — 7.6:1</span>
-              <span className="font-mono font-bold text-slate-500">#475569</span>
+              <span className="text-slate-600">Secondary copy (7.6:1)</span>
+              <span className="font-mono font-bold text-slate-600">#475569</span>
             </div>
             <div className="flex items-center justify-between p-3">
               <span className="font-mono text-slate-800">--color-status-aligned</span>

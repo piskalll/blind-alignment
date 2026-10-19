@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState } from "react";
-import { Lock, ArrowLeft, ArrowRight, ShieldCheck } from "lucide-react";
-import { SCENARIOS } from "../data/scenarios";
+import { Lock, ShieldCheck, Check } from "lucide-react";
+import { AppHeader } from "./AppHeader";
+import { SCENARIOS, MODULES } from "../data/scenarios";
 import { useRoom, OptionKey } from "../lib/sessionStore";
 
 interface DilemmaRunnerProps {
@@ -11,33 +12,38 @@ interface DilemmaRunnerProps {
   moduleId?: number;
 }
 
-const formatIDR = (val: number) => "IDR " + val.toLocaleString("id-ID");
+const formatIDR = (val: number) => "Rp " + val.toLocaleString("id-ID");
 
 export const DilemmaRunnerPage: React.FC<DilemmaRunnerProps> = ({
   onBack,
   onFinish,
   moduleId = 1,
 }) => {
-  const { me, saveAnswer, lockAnswers } = useRoom();
+  const { room, myName, partnerName, me, saveAnswer, lockAnswers } = useRoom();
   const [index, setIndex] = useState(0);
 
+  const roomCode = room?.code || "VWS-000";
+  const currentModule = MODULES.find((m) => m.id === moduleId) || MODULES[0];
   const moduleScenarios = SCENARIOS.filter((s) => s.moduleId === moduleId);
-  const scenariosToUse = moduleScenarios.length > 0 ? moduleScenarios : SCENARIOS;
+  const scenariosToUse =
+    moduleScenarios.length > 0 ? moduleScenarios : SCENARIOS.slice(0, 10);
 
-  const scenario = scenariosToUse[index];
+  const scenario = scenariosToUse[index] || scenariosToUse[0];
   const isLast = index === scenariosToUse.length - 1;
-  // Answers autosave to the store on every change; this is the current draft.
   const answer = me?.answers[scenario.id] ?? {};
   const choice = answer.choice;
   const amount = answer.amount ?? scenario.slider?.defaultValue;
   const note = answer.note ?? "";
+
+  const answeredCount = scenariosToUse.filter(
+    (s) => me?.answers[s.id]?.choice !== undefined
+  ).length;
 
   const update = (patch: Partial<typeof answer>) =>
     saveAnswer(scenario.id, { ...answer, ...patch });
 
   const handleNext = () => {
     if (!choice) return;
-    // Persist slider default if the user never touched it
     if (scenario.slider && answer.amount === undefined) update({ amount });
     if (isLast) {
       lockAnswers(moduleId);
@@ -50,78 +56,139 @@ export const DilemmaRunnerPage: React.FC<DilemmaRunnerProps> = ({
   const handleBack = () => (index === 0 ? onBack() : setIndex(index - 1));
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col justify-between">
-      <header className="w-full bg-white border-b border-[#E2E8F0] px-4 sm:px-8 py-4 flex items-center justify-between">
-        <span className="font-bold text-sm text-[#1E293B]">
-          Scenario {index + 1} of {SCENARIOS.length}
-        </span>
-        <button
-          onClick={onBack}
-          className="text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
-        >
-          Exit (progress autosaved)
-        </button>
-      </header>
+    <div className="min-h-screen bg-[#F8FAF7] text-[#1E293B] flex flex-col">
+      <AppHeader
+        roomCode={roomCode}
+        moduleId={moduleId}
+        progressText={`Modul ${moduleId} · Skenario ${index + 1}/${scenariosToUse.length}`}
+        isEncrypted={true}
+        userNames={`${myName || "Anda"} & ${partnerName || "Pasangan"}`}
+      />
 
-      <div className="w-full bg-slate-200 h-1">
-        <div
-          className="bg-[#0F766E] h-1 transition-all"
-          style={{ width: `${((index + 1) / SCENARIOS.length) * 100}%` }}
-        />
+      {/* Progress Bar & 1-10 Scenario Jump Strip */}
+      <div className="bg-[#FFFFFF] border-b border-[#E2E8F0]">
+        <div className="w-full bg-[#E2E8F0] h-1.5">
+          <div
+            className="bg-[#0F766E] h-1.5 transition-all duration-200"
+            style={{
+              width: `${((index + 1) / scenariosToUse.length) * 100}%`,
+            }}
+          />
+        </div>
+
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
+            {scenariosToUse.map((sc, i) => {
+              const isCurrent = i === index;
+              const isAnswered = me?.answers[sc.id]?.choice !== undefined;
+              return (
+                <button
+                  key={sc.id}
+                  type="button"
+                  onClick={() => setIndex(i)}
+                  aria-label={`Buka skenario ${i + 1}`}
+                  aria-current={isCurrent ? "step" : undefined}
+                  className={`min-w-[34px] h-8 px-2 rounded-md font-mono text-xs font-bold border transition-colors cursor-pointer flex items-center justify-center gap-1 ${
+                    isCurrent
+                      ? "bg-[#1E293B] text-[#FFFFFF] border-[#1E293B]"
+                      : isAnswered
+                      ? "bg-[#ECFDF5] text-[#065F46] border-[#A7F3D0]"
+                      : "bg-[#F8FAF7] text-[#475569] border-[#CBD5E1] hover:text-[#1E293B]"
+                  }`}
+                >
+                  <span>{i + 1}</span>
+                  {isAnswered && !isCurrent && (
+                    <Check className="w-3 h-3 shrink-0" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-3 text-xs font-semibold text-[#475569]">
+            <span className="font-mono">
+              {answeredCount}/{scenariosToUse.length} Terjawab
+            </span>
+            <button
+              type="button"
+              onClick={onBack}
+              className="text-[#0F766E] hover:underline font-bold cursor-pointer"
+            >
+              Simpan &amp; Ke Dashboard
+            </button>
+          </div>
+        </div>
       </div>
 
-      <main className="max-w-3xl w-full mx-auto px-4 sm:px-8 py-10 my-auto space-y-8">
-        <div className="flex items-center space-x-2">
-          <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-            {scenario.category}
+      <main className="max-w-3xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-10 flex-1 space-y-6">
+        <div className="flex items-center flex-wrap gap-2">
+          <span className="font-mono text-xs font-bold uppercase px-2.5 py-1 rounded bg-[#F1F5F9] text-[#1E293B] border border-[#CBD5E1]">
+            MODUL 0{moduleId} · {currentModule.title}
           </span>
-          <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 flex items-center space-x-1">
+          <span className="text-xs font-bold px-2.5 py-1 rounded bg-[#FFFBEB] text-[#92400E] border border-[#FDE68A]">
+            {scenario.categoryLabel}
+          </span>
+          <span className="text-xs font-bold px-2.5 py-1 rounded bg-[#F0FDFA] text-[#0F766E] border border-[#CCFBF1] flex items-center gap-1">
             <Lock className="w-3 h-3" />
-            <span>Sealed</span>
+            <span>Tersegel Privat</span>
           </span>
         </div>
 
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1E293B] tracking-tight leading-snug">
-          Scenario #{scenario.id}: {scenario.title}
-        </h1>
-        {scenario.description && (
-          <p className="text-sm text-[#475569] -mt-4">{scenario.description}</p>
-        )}
+        <div className="space-y-2">
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1E293B] tracking-tight leading-snug">
+            Skenario #{index + 1}: {scenario.title}
+          </h1>
+          {scenario.description && (
+            <p className="text-sm sm:text-base text-[#475569] leading-relaxed">
+              {scenario.description}
+            </p>
+          )}
+        </div>
 
-        <div className="space-y-3.5">
+        <div
+          role="radiogroup"
+          aria-label={`Pilihan keputusan untuk ${scenario.title}`}
+          className="space-y-3"
+        >
           {scenario.options.map((opt) => {
             const selected = choice === opt.key;
             return (
               <button
                 key={opt.key}
                 type="button"
+                role="radio"
+                aria-checked={selected}
                 onClick={() => update({ choice: opt.key as OptionKey })}
-                className={`w-full text-left p-5 rounded-xl border transition flex items-center justify-between cursor-pointer ${
+                className={`w-full text-left p-4 sm:p-5 rounded-xl border-2 transition-colors flex items-start sm:items-center justify-between gap-4 cursor-pointer ${
                   selected
-                    ? "bg-emerald-50/50 border-[#0F766E] ring-1 ring-[#0F766E]"
-                    : "bg-white border-[#E2E8F0] hover:border-slate-400 hover:bg-slate-50/50"
+                    ? "bg-[#F0FDFA] border-[#0F766E]"
+                    : "bg-[#FFFFFF] border-[#CBD5E1] hover:border-[#475569]"
                 }`}
               >
-                <div className="flex items-center space-x-4">
+                <div className="flex items-start sm:items-center gap-3.5">
                   <span
-                    className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm ${
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center font-mono font-bold text-sm shrink-0 ${
                       selected
-                        ? "bg-[#0F766E] text-white"
-                        : "bg-slate-100 text-slate-700"
+                        ? "bg-[#0F766E] text-[#FFFFFF]"
+                        : "bg-[#F1F5F9] text-[#1E293B] border border-[#CBD5E1]"
                     }`}
                   >
                     {opt.key}
                   </span>
-                  <span className="text-sm font-medium text-slate-800">
+                  <span className="text-sm sm:text-base font-semibold text-[#1E293B] leading-snug">
                     {opt.text}
                   </span>
                 </div>
                 <div
-                  className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${
-                    selected ? "border-[#0F766E] bg-[#0F766E]" : "border-slate-300"
+                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-1 sm:mt-0 ${
+                    selected
+                      ? "border-[#0F766E] bg-[#0F766E]"
+                      : "border-[#475569]"
                   }`}
                 >
-                  {selected && <div className="w-2 h-2 rounded-full bg-white" />}
+                  {selected && (
+                    <div className="w-2 h-2 rounded-full bg-[#FFFFFF]" />
+                  )}
                 </div>
               </button>
             );
@@ -129,31 +196,35 @@ export const DilemmaRunnerPage: React.FC<DilemmaRunnerProps> = ({
         </div>
 
         {scenario.slider && amount !== undefined && (
-          <div className="bg-white rounded-xl p-5 border border-[#E2E8F0] space-y-4">
+          <div className="bg-[#FFFFFF] rounded-xl p-5 border border-[#CBD5E1] space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
-                <div className="text-xs font-bold text-slate-800">
+                <label
+                  htmlFor="scenario-slider"
+                  className="text-xs font-bold uppercase tracking-wider text-[#1E293B] block"
+                >
                   {scenario.slider.label}
-                </div>
-                <div className="text-[11px] text-slate-500 flex items-center space-x-1 mt-0.5">
+                </label>
+                <div className="text-xs text-[#475569] flex items-center gap-1 mt-0.5 font-medium">
                   <Lock className="w-3 h-3 text-[#0F766E]" />
-                  <span>Confidential input</span>
+                  <span>Nominal dirahasiakan hingga segel terbuka</span>
                 </div>
               </div>
-              <div className="text-right font-mono font-bold text-[#0F766E] text-lg">
+              <div className="font-mono font-bold text-[#0F766E] text-lg tabular-nums">
                 {formatIDR(amount)}
               </div>
             </div>
             <input
+              id="scenario-slider"
               type="range"
               min={scenario.slider.min}
               max={scenario.slider.max}
               step={scenario.slider.step}
               value={amount}
               onChange={(e) => update({ amount: Number(e.target.value) })}
-              className="w-full accent-[#0F766E] h-2 bg-slate-200 rounded-lg cursor-pointer"
+              className="w-full accent-[#0F766E] h-2 bg-[#E2E8F0] rounded-lg cursor-pointer"
             />
-            <div className="flex justify-between text-[11px] font-mono text-slate-400">
+            <div className="flex justify-between text-xs font-mono font-medium text-[#475569] tabular-nums">
               <span>{formatIDR(scenario.slider.min)}</span>
               <span>{formatIDR(scenario.slider.max)}</span>
             </div>
@@ -161,45 +232,46 @@ export const DilemmaRunnerPage: React.FC<DilemmaRunnerProps> = ({
         )}
 
         <div className="space-y-1.5">
-          <label className="text-xs font-bold text-slate-800" htmlFor="note">
-            Private reasoning (optional)
+          <label
+            className="text-xs font-bold uppercase tracking-wider text-[#1E293B] block"
+            htmlFor="note"
+          >
+            Catatan Pertimbangan Pribadi (Opsional)
           </label>
           <textarea
             id="note"
             value={note}
             onChange={(e) => update({ note: e.target.value })}
             rows={3}
-            placeholder="Why do you feel this way? Only revealed after you both lock in."
-            className="w-full p-3 text-sm rounded-lg border border-[#E2E8F0] bg-white focus:outline-none focus:border-[#0F766E]"
+            placeholder="Tuliskan alasan atau kondisi khusus Anda. Catatan ini baru ditampilkan kepada pasangan setelah kedua pihak mengunci jawaban."
+            className="w-full p-3.5 text-sm rounded-lg border border-[#CBD5E1] bg-[#FFFFFF] text-[#1E293B] focus:border-[#0F766E]"
           />
         </div>
       </main>
 
-      <footer className="w-full bg-white border-t border-[#E2E8F0] px-4 sm:px-8 py-4">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
+      <footer className="w-full bg-[#FFFFFF] border-t border-[#E2E8F0] px-4 sm:px-6 py-4">
+        <div className="max-w-3xl mx-auto flex items-center justify-between gap-3">
           <button
+            type="button"
             onClick={handleBack}
-            className="px-4 py-2.5 border border-[#E2E8F0] hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg flex items-center space-x-1.5 transition cursor-pointer"
+            className="min-h-[44px] px-4 py-2.5 border border-[#CBD5E1] bg-[#FFFFFF] hover:bg-[#F1F5F9] text-[#1E293B] text-xs font-bold rounded-lg transition-colors cursor-pointer"
           >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Back</span>
+            {index === 0 ? "Kembali ke Pengantar" : "Skenario Sebelumnya"}
           </button>
 
           <button
+            type="button"
             onClick={handleNext}
             disabled={!choice}
-            className="px-6 py-2.5 bg-[#0F766E] hover:bg-[#0D625C] disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg flex items-center space-x-2 transition shadow-xs cursor-pointer"
+            className="min-h-[44px] px-6 py-2.5 bg-[#0F766E] hover:bg-[#115E59] disabled:opacity-40 disabled:cursor-not-allowed text-[#FFFFFF] text-xs font-bold rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
           >
             {isLast ? (
               <>
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>Lock In Answer</span>
+                <ShieldCheck className="w-4 h-4" />
+                <span>Kunci &amp; Segel 10 Jawaban Modul {moduleId}</span>
               </>
             ) : (
-              <>
-                <span>Save &amp; Next Dilemma</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </>
+              <span>Simpan &amp; Lanjut ke Skenario #{index + 2}</span>
             )}
           </button>
         </div>

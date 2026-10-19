@@ -1,20 +1,21 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
+import Link from "next/link";
 import { AppHeader } from "./AppHeader";
 import {
   ChevronDown,
-  ChevronUp,
   AlertTriangle,
-  Flag,
-  ArrowRight,
   X,
   CheckCircle2,
-  Sparkles,
+  Scale,
+  FileSignature,
+  Lock,
+  SlidersHorizontal,
 } from "lucide-react";
-import { useRoom } from "../lib/sessionStore";
+import { useRoom, simulatePartnerLock } from "../lib/sessionStore";
 import { computeAlignment } from "../lib/scoring";
-import { SCENARIOS } from "../data/scenarios";
+import { SCENARIOS, MODULES } from "../data/scenarios";
 
 interface AlignmentResultProps {
   onProceedToCharter: () => void;
@@ -22,39 +23,82 @@ interface AlignmentResultProps {
   moduleId?: number;
 }
 
+const COMPROMISE_TEMPLATES = [
+  "Tetapkan batas nominal tetap dari rekening bersama yang disepakati berdua; kelebihan di atas batas tersebut wajib didiskusikan minimal 24 jam sebelumnya.",
+  "Bagi beban 50% dari kas rumah tangga bersama dan 50% dari alokasi dana pribadi masing-masing tanpa mengganggu pos dana darurat.",
+  "Susun aturan tertulis yang dievaluasi ulang setiap 6 bulan agar keputusan tetap adil mengikuti perubahan pendapatan dan kondisi keluarga.",
+];
+
 export const AlignmentResultPage: React.FC<AlignmentResultProps> = ({
   onProceedToCharter,
   onBackToDashboard,
   moduleId = 1,
 }) => {
-  const { room, myName, partnerName, me, partnerAnswers, bothLocked, saveCompromise } = useRoom();
+  const {
+    room,
+    myName,
+    partnerName,
+    me,
+    partnerAnswers,
+    saveCompromise,
+  } = useRoom();
+
+  const roomCode = room?.code || "VWS-000";
+  const encodedRoom = encodeURIComponent(roomCode);
+  const currentModule = MODULES.find((m) => m.id === moduleId) || MODULES[0];
+  const moduleScenarios = useMemo(
+    () => SCENARIOS.filter((s) => s.moduleId === moduleId),
+    [moduleId]
+  );
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [selectedScenarioForModal, setSelectedScenarioForModal] = useState<number>(4);
-  const [selectedSuggestion, setSelectedSuggestion] = useState(1);
+  const [selectedScenarioForModal, setSelectedScenarioForModal] =
+    useState<number>(moduleScenarios[0]?.id || 1);
+  const [selectedSuggestion, setSelectedSuggestion] = useState(0);
   const [customAgreement, setCustomAgreement] = useState("");
-  const [openAccordions, setOpenAccordions] = useState<Record<number, boolean>>({
-    4: true,
-  });
+  const [openAccordions, setOpenAccordions] = useState<Record<number, boolean>>(
+    {}
+  );
+
+  useEffect(() => {
+    if (!modalOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setModalOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [modalOpen]);
 
   const toggleAccordion = (id: number) => {
-    setOpenAccordions((prev) => ({ ...prev, [id]: !prev[id] }));
+    setOpenAccordions((prev) => ({ ...prev, [id]: !(prev[id] ?? true) }));
   };
 
-  // Hitung skor dinamis menggunakan computeAlignment
+  const myAnsweredCount = useMemo(() => {
+    if (!me?.answers) return 0;
+    return moduleScenarios.filter((s) => me.answers[s.id]?.choice !== undefined)
+      .length;
+  }, [me?.answers, moduleScenarios]);
+
+  const partnerAnsweredCount = useMemo(() => {
+    if (!partnerAnswers) return 0;
+    return moduleScenarios.filter(
+      (s) => partnerAnswers[s.id]?.choice !== undefined
+    ).length;
+  }, [partnerAnswers, moduleScenarios]);
+
+  const hasBothAnswers = myAnsweredCount > 0 && partnerAnsweredCount > 0;
+
   const alignment = useMemo(() => {
-    if (!me?.answers || !partnerAnswers) {
+    if (!me?.answers || !partnerAnswers || !hasBothAnswers) {
       return null;
     }
     return computeAlignment(me.answers, partnerAnswers, moduleId);
-  }, [me?.answers, partnerAnswers, moduleId]);
+  }, [me?.answers, partnerAnswers, hasBothAnswers, moduleId]);
 
-  const overallScore = alignment ? alignment.overall : 68;
-  const categories = alignment ? alignment.byCategory : {
-    "Debt Ratio": 75,
-    "Parental Allowance": 45,
-    "Emergency Fund": 80,
-  };
+  const overallScore = alignment ? alignment.overall : 0;
+  const categories = alignment ? alignment.byCategory : {};
 
   const criticalScenarios = alignment
     ? alignment.results.filter((r) => r.critical)
@@ -65,416 +109,556 @@ export const AlignmentResultPage: React.FC<AlignmentResultProps> = ({
     : [];
 
   const formatIDR = (val?: number) =>
-    val ? "IDR " + val.toLocaleString("id-ID") : "";
+    val ? "Rp " + val.toLocaleString("id-ID") : "";
+
+  const getExistingCompromise = (scenarioId: number) =>
+    room?.compromises?.find((c) => c.scenarioId === scenarioId);
+
+  const openCompromiseModal = (scenarioId: number) => {
+    const existing = getExistingCompromise(scenarioId);
+    setSelectedScenarioForModal(scenarioId);
+    setSelectedSuggestion(0);
+    setCustomAgreement(existing?.agreementText || "");
+    setModalOpen(true);
+  };
 
   return (
-    <div className="min-h-screen bg-[#F1F5F9] flex flex-col relative">
+    <div className="min-h-screen bg-[#F8FAF7] text-[#1E293B] flex flex-col relative">
       <AppHeader
-        roomCode={room?.code || "VWS-000"}
-        progressText="Dual Reveal: Completed"
+        roomCode={roomCode}
+        moduleId={moduleId}
+        progressText={
+          hasBothAnswers
+            ? `Modul ${moduleId}: Skor Keselarasan ${overallScore}%`
+            : `Modul ${moduleId}: Menunggu Kelengkapan Jawaban`
+        }
         isEncrypted={true}
-        userNames={`${myName || "You"} & ${partnerName || "Partner"}`}
+        userNames={`${myName || "Anda"} & ${partnerName || "Pasangan"}`}
       />
 
-      <main className="max-w-6xl w-full mx-auto px-4 sm:px-8 py-8 flex-1 space-y-8">
-        {/* Top Header & Score Banner */}
-        <div className="bg-white rounded-2xl p-6 sm:p-8 border border-[#E2E8F0] shadow-xs">
-          <div className="text-xs font-mono font-bold tracking-widest text-[#475569] uppercase mb-1">
-            Dual reveal · Module 1
-          </div>
+      <main className="max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 space-y-8">
+        {!hasBothAnswers ? (
+          /* Honest Empty / Unrevealed State (R-17 & R-27) */
+          <div className="bg-[#FFFFFF] rounded-xl p-6 sm:p-10 border border-[#CBD5E1] space-y-6">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-[#FFFBEB] border border-[#FDE68A] text-xs font-mono font-bold text-[#92400E]">
+              <Lock className="w-3.5 h-3.5" />
+              <span>SEGEL GANDA BELUM TERBUKA · MODUL 0{moduleId}</span>
+            </div>
 
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-8 border-b border-[#E2E8F0]">
-            <div>
+            <div className="space-y-2 max-w-2xl">
               <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1E293B] tracking-tight">
-                Alignment Analysis: Financial Principles
+                Perbandingan jawaban Modul {moduleId} membutuhkan jawaban dari
+                kedua pihak
               </h1>
-              <p className="text-xs sm:text-sm text-[#475569] mt-1">
-                Comparative analysis derived simultaneously from independent submissions.
+              <p className="text-sm sm:text-base text-[#475569] leading-relaxed">
+                Saat ini <strong>{myName || "Anda"}</strong> telah menjawab{" "}
+                <span className="font-mono font-bold text-[#1E293B]">
+                  {myAnsweredCount}/10
+                </span>{" "}
+                skenario, sedangkan{" "}
+                <strong>{partnerName || "Pasangan"}</strong> telah menjawab{" "}
+                <span className="font-mono font-bold text-[#1E293B]">
+                  {partnerAnsweredCount}/10
+                </span>{" "}
+                skenario pada <em>{currentModule.title}</em>.
               </p>
             </div>
 
-            <div className={`flex items-center space-x-3 px-5 py-3 rounded-2xl shrink-0 border ${
-              overallScore >= 70
-                ? "bg-emerald-50/60 border-emerald-200/80"
-                : overallScore >= 50
-                ? "bg-amber-50/60 border-amber-200/80"
-                : "bg-red-50/60 border-red-200/80"
-            }`}>
-              <span className={`text-3xl sm:text-4xl font-extrabold font-mono ${
-                overallScore >= 70
-                  ? "text-[#0F766E]"
-                  : overallScore >= 50
-                  ? "text-[#D97706]"
-                  : "text-[#DC2626]"
-              }`}>
-                {overallScore}%
-              </span>
-              <span className="text-xs font-bold text-slate-700 leading-tight">
-                Overall <br />
-                Aligned
-              </span>
+            <div className="flex flex-wrap items-center gap-3 pt-2">
+              <Link
+                href={`/room/${encodedRoom}/dilemma?module=${moduleId}`}
+                className="min-h-[48px] px-5 py-3 rounded-lg bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] text-xs sm:text-sm font-bold inline-flex items-center gap-2 transition-colors"
+              >
+                <SlidersHorizontal className="w-4 h-4" />
+                <span>Isi 10 Skenario Modul {moduleId}</span>
+              </Link>
+
+              <button
+                type="button"
+                onClick={() => simulatePartnerLock(moduleId)}
+                className="min-h-[48px] px-5 py-3 rounded-lg bg-[#1E293B] hover:bg-[#0F172A] text-[#FFFFFF] text-xs sm:text-sm font-bold inline-flex items-center gap-2 transition-colors cursor-pointer"
+              >
+                <Scale className="w-4 h-4 text-[#5EEAD4]" />
+                <span>
+                  Simulasikan Jawaban {partnerName || "Pasangan"} &amp; Buka
+                  Hasil
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={onBackToDashboard}
+                className="min-h-[48px] px-4 py-3 rounded-lg border border-[#CBD5E1] bg-[#FFFFFF] hover:bg-[#F1F5F9] text-[#1E293B] text-xs sm:text-sm font-bold transition-colors cursor-pointer"
+              >
+                Kembali ke Dashboard
+              </button>
             </div>
           </div>
+        ) : (
+          <>
+            {/* Top Header & Score Ledger */}
+            <div className="bg-[#FFFFFF] rounded-xl p-6 sm:p-8 border border-[#CBD5E1]">
+              <div className="text-xs font-mono font-bold tracking-wider text-[#0F766E] uppercase mb-1">
+                PEMBUKAAN SEGEL SERENTAK · MODUL 0{moduleId}
+              </div>
 
-          {/* Category Breakdown Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center pt-8">
-            {/* SVG Visual Meter */}
-            <div className="lg:col-span-5 flex flex-col items-center justify-center p-6 bg-slate-50/60 rounded-2xl border border-slate-100">
-              <div className="relative w-44 h-44 flex items-center justify-center">
-                <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    fill="none"
-                    stroke="#E2E8F0"
-                    strokeWidth="10"
-                  />
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    fill="none"
-                    stroke={overallScore >= 70 ? "#0F766E" : overallScore >= 50 ? "#D97706" : "#DC2626"}
-                    strokeWidth="10"
-                    strokeDasharray="251.2"
-                    strokeDashoffset={251.2 - (251.2 * overallScore) / 100}
-                    strokeLinecap="round"
-                    className="transition-all duration-1000 ease-out"
-                  />
-                </svg>
-                <div className="absolute flex flex-col items-center justify-center">
-                  <span className="text-3xl font-extrabold text-[#1E293B] font-mono">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-8 border-b border-[#E2E8F0]">
+                <div>
+                  <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1E293B] tracking-tight">
+                    Peta Keselarasan: {currentModule.title}
+                  </h1>
+                  <p className="text-xs sm:text-sm text-[#475569] mt-1">
+                    Dihitung langsung dari perbandingan jawaban independen{" "}
+                    <strong>{myName || "Anda"}</strong> dan{" "}
+                    <strong>{partnerName || "Pasangan"}</strong>.
+                  </p>
+                </div>
+
+                <div
+                  className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shrink-0 border ${
+                    overallScore >= 70
+                      ? "bg-[#ECFDF5] border-[#A7F3D0] text-[#065F46]"
+                      : overallScore >= 50
+                      ? "bg-[#FFFBEB] border-[#FDE68A] text-[#92400E]"
+                      : "bg-[#FEF2F2] border-[#FECACA] text-[#991B1B]"
+                  }`}
+                >
+                  <span className="text-3xl sm:text-4xl font-extrabold font-mono tabular-nums">
                     {overallScore}%
                   </span>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                    Consensus
+                  <span className="text-xs font-bold leading-tight">
+                    Tingkat
+                    <br />
+                    Keselarasan
                   </span>
                 </div>
               </div>
-              <div className="text-xs text-center text-slate-500 mt-3 max-w-xs">
-                {criticalScenarios.length > 0
-                  ? `${criticalScenarios.length} critical differences need a mutual compromise before signing.`
-                  : "Great alignment across all financial scenarios!"}
+
+              {/* Category Breakdown Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center pt-8">
+                {/* Summary Ledger Box */}
+                <div className="lg:col-span-5 p-6 bg-[#F8FAF7] rounded-xl border border-[#E2E8F0] space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-4 rounded-lg bg-[#FFFFFF] border border-[#CBD5E1]">
+                      <div className="font-mono text-2xl font-extrabold text-[#0F766E] tabular-nums">
+                        {alignedScenarios.length}
+                      </div>
+                      <div className="text-xs font-bold text-[#1E293B] mt-0.5">
+                        Skenario Selaras
+                      </div>
+                      <div className="text-[11px] text-[#475569]">
+                        Pilihan sejalan
+                      </div>
+                    </div>
+                    <div className="p-4 rounded-lg bg-[#FFFFFF] border border-[#CBD5E1]">
+                      <div className="font-mono text-2xl font-extrabold text-[#991B1B] tabular-nums">
+                        {criticalScenarios.length}
+                      </div>
+                      <div className="text-xs font-bold text-[#1E293B] mt-0.5">
+                        Perlu Kompromi
+                      </div>
+                      <div className="text-[11px] text-[#475569]">
+                        Berbeda pandangan
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-[#475569] leading-relaxed">
+                    {criticalScenarios.length > 0
+                      ? `Terdapat ${criticalScenarios.length} topik dengan pilihan berbeda. Diskusikan dan catat jalan tengahnya pada masing-masing kartu di bawah sebelum mengesahkan Piagam.`
+                      : "Seluruh 10 skenario pada modul ini telah selaras. Anda dapat langsung melanjutkan ke pengesahan Piagam Kesepakatan."}
+                  </p>
+                </div>
+
+                {/* Pillar Breakdown list */}
+                <div className="lg:col-span-7 space-y-4">
+                  <h2 className="text-xs font-mono font-bold tracking-wider text-[#1E293B] uppercase">
+                    Rincian Kecocokan per Kategori Topik
+                  </h2>
+
+                  {Object.entries(categories).map(([category, score]) => {
+                    const barColor =
+                      score >= 70
+                        ? "bg-[#0F766E]"
+                        : score >= 50
+                        ? "bg-[#B45309]"
+                        : "bg-[#B91C1C]";
+                    const textColor =
+                      score >= 70
+                        ? "text-[#0F766E]"
+                        : score >= 50
+                        ? "text-[#92400E]"
+                        : "text-[#991B1B]";
+
+                    return (
+                      <div key={category}>
+                        <div className="flex justify-between items-center text-xs font-bold mb-1.5">
+                          <span className="text-[#1E293B]">{category}</span>
+                          <span
+                            className={`${textColor} font-mono tabular-nums`}
+                          >
+                            {score}% Selaras
+                          </span>
+                        </div>
+                        <div className="w-full bg-[#E2E8F0] h-2.5 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full ${barColor} transition-all duration-300`}
+                            style={{ width: `${score}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
-            {/* Pillar Breakdown list */}
-            <div className="lg:col-span-7 space-y-4">
-              <h2 className="text-xs font-mono font-bold tracking-widest text-[#475569] uppercase mb-4">
-                Pillar match breakdown
-              </h2>
-
-              {Object.entries(categories).map(([category, score]) => {
-                const color =
-                  score >= 70 ? "bg-[#0F766E]" : score >= 50 ? "bg-[#D97706]" : "bg-[#DC2626]";
-                const textColor =
-                  score >= 70 ? "text-[#0F766E]" : score >= 50 ? "text-[#D97706]" : "text-[#DC2626]";
-
-                return (
-                  <div key={category}>
-                    <div className="flex justify-between items-center text-xs font-bold mb-1.5">
-                      <span className="text-[#1E293B]">{category}</span>
-                      <span className={`${textColor} font-mono`}>{score}% Match</span>
-                    </div>
-                    <div className="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full ${color} transition-all duration-500`}
-                        style={{ width: `${score}%` }}
-                      />
-                    </div>
+            {/* Where You Differ Section (Conflicts) */}
+            {criticalScenarios.length > 0 && (
+              <section className="space-y-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-5 h-5 text-[#991B1B]" />
+                    <h2 className="text-lg font-extrabold text-[#1E293B]">
+                      Topik yang Memerlukan Kompromi ({criticalScenarios.length}{" "}
+                      Skenario)
+                    </h2>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
+                  <span className="text-xs text-[#475569] font-medium">
+                    Klik kartu untuk melihat perbandingan dan merumuskan jalan
+                    tengah
+                  </span>
+                </div>
 
-        {/* Where You Differ Section (Conflicts) */}
-        {criticalScenarios.length > 0 && (
-          <div className="space-y-4">
-            <div className="flex items-center space-x-2">
-              <AlertTriangle className="w-5 h-5 text-red-500" />
-              <h2 className="text-lg font-bold text-[#1E293B]">
-                Where you differ ({criticalScenarios.length} Critical Conflict{criticalScenarios.length > 1 ? "s" : ""})
-              </h2>
-            </div>
+                {criticalScenarios.map(({ scenario, score }) => {
+                  const myAns = me?.answers[scenario.id];
+                  const partnerAns = partnerAnswers?.[scenario.id];
+                  const isOpen = openAccordions[scenario.id] ?? true;
 
-            {criticalScenarios.map(({ scenario, score }) => {
-              const myAns = me?.answers[scenario.id];
-              const partnerAns = partnerAnswers?.[scenario.id];
-              const isOpen = openAccordions[scenario.id] ?? false;
+                  const myOpt = scenario.options.find(
+                    (o) => o.key === myAns?.choice
+                  );
+                  const partnerOpt = scenario.options.find(
+                    (o) => o.key === partnerAns?.choice
+                  );
+                  const savedComp = getExistingCompromise(scenario.id);
 
-              const myOpt = scenario.options.find((o) => o.key === myAns?.choice);
-              const partnerOpt = scenario.options.find((o) => o.key === partnerAns?.choice);
+                  return (
+                    <div
+                      key={scenario.id}
+                      className={`bg-[#FFFFFF] rounded-xl border-2 overflow-hidden ${
+                        savedComp ? "border-[#0F766E]" : "border-[#FECACA]"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        aria-expanded={isOpen}
+                        onClick={() => toggleAccordion(scenario.id)}
+                        className="w-full p-5 flex items-center justify-between gap-3 cursor-pointer hover:bg-[#F8FAF7] transition-colors border-b border-[#E2E8F0] text-left"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span
+                            className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+                              savedComp
+                                ? "bg-[#ECFDF5] text-[#065F46] border border-[#A7F3D0]"
+                                : "bg-[#FEF2F2] text-[#991B1B] border border-[#FECACA]"
+                            }`}
+                          >
+                            {savedComp ? "✓" : "!"}
+                          </span>
+                          <span className="text-sm sm:text-base font-bold text-[#1E293B] truncate">
+                            Skenario #{scenario.id} · {scenario.title}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2.5 shrink-0">
+                          {savedComp ? (
+                            <span className="text-xs font-bold px-2.5 py-1 rounded bg-[#ECFDF5] text-[#065F46] border border-[#A7F3D0]">
+                              Kompromi Tercatat
+                            </span>
+                          ) : (
+                            <span className="text-xs font-bold px-2.5 py-1 rounded bg-[#FEF2F2] text-[#991B1B] border border-[#FECACA] font-mono tabular-nums">
+                              Skor {score}%
+                            </span>
+                          )}
+                          <ChevronDown
+                            className={`w-4 h-4 text-[#475569] transition-transform ${
+                              isOpen ? "rotate-180" : ""
+                            }`}
+                          />
+                        </div>
+                      </button>
 
-              return (
-                <div
-                  key={scenario.id}
-                  className="bg-white rounded-2xl border-2 border-red-200 overflow-hidden shadow-xs"
-                >
-                  {/* Header Accordion Bar */}
-                  <div
-                    onClick={() => toggleAccordion(scenario.id)}
-                    className="p-5 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition border-b border-red-100"
-                  >
-                    <div className="flex items-center space-x-3">
-                      <span className="w-5 h-5 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-xs font-bold">
-                        !
-                      </span>
-                      <span className="text-sm font-bold text-slate-800">
-                        Scenario #{scenario.id} · {scenario.title}
-                      </span>
-                    </div>
-                    <div className="flex items-center space-x-3">
-                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200 font-mono">
-                        {score}% Match
-                      </span>
-                      {isOpen ? (
-                        <ChevronUp className="w-4 h-4 text-slate-400" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-slate-400" />
+                      {isOpen && (
+                        <div className="p-5 sm:p-6 space-y-5 bg-[#F8FAF7]">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {/* You chose */}
+                            <div className="bg-[#FFFFFF] p-4 sm:p-5 rounded-xl border border-[#CBD5E1] space-y-2">
+                              <div className="flex items-center gap-2">
+                                <span className="w-6 h-6 rounded-full bg-[#1E293B] text-[#FFFFFF] flex items-center justify-center text-xs font-bold">
+                                  {myName?.[0]?.toUpperCase() || "A"}
+                                </span>
+                                <span className="text-xs font-bold uppercase tracking-wider text-[#475569]">
+                                  Pilihan {myName || "Anda"}
+                                </span>
+                              </div>
+                              <p className="text-xs sm:text-sm text-[#1E293B] font-bold leading-relaxed">
+                                Opsi {myAns?.choice || "-"}:{" "}
+                                {myOpt?.text || "Belum dijawab"}
+                              </p>
+                              {myAns?.amount !== undefined && (
+                                <div className="text-xs font-mono font-bold text-[#0F766E] pt-1 tabular-nums">
+                                  Nominal: {formatIDR(myAns.amount)}
+                                </div>
+                              )}
+                              {myAns?.note && (
+                                <div className="text-xs text-[#475569] italic pt-2 border-t border-[#E2E8F0]">
+                                  &ldquo;{myAns.note}&rdquo;
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Partner chose */}
+                            <div className="bg-[#FFFFFF] p-4 sm:p-5 rounded-xl border border-[#CBD5E1] space-y-2">
+                              <div className="flex items-center gap-2">
+                                <span className="w-6 h-6 rounded-full bg-[#0F766E] text-[#FFFFFF] flex items-center justify-center text-xs font-bold">
+                                  {partnerName?.[0]?.toUpperCase() || "P"}
+                                </span>
+                                <span className="text-xs font-bold uppercase tracking-wider text-[#0F766E]">
+                                  Pilihan {partnerName || "Pasangan"}
+                                </span>
+                              </div>
+                              <p className="text-xs sm:text-sm text-[#1E293B] font-bold leading-relaxed">
+                                Opsi {partnerAns?.choice || "-"}:{" "}
+                                {partnerOpt?.text || "Belum dijawab"}
+                              </p>
+                              {partnerAns?.amount !== undefined && (
+                                <div className="text-xs font-mono font-bold text-[#0F766E] pt-1 tabular-nums">
+                                  Nominal: {formatIDR(partnerAns.amount)}
+                                </div>
+                              )}
+                              {partnerAns?.note && (
+                                <div className="text-xs text-[#475569] italic pt-2 border-t border-[#E2E8F0]">
+                                  &ldquo;{partnerAns.note}&rdquo;
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Compromise Box */}
+                          <div className="bg-[#FFFFFF] p-5 rounded-xl border border-[#CBD5E1] space-y-3">
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                              <span className="text-xs font-mono font-bold uppercase tracking-wider text-[#0F766E]">
+                                {savedComp
+                                  ? "RUMUSAN KOMPROMI YANG DISEPAKATI"
+                                  : "PANDUAN JALAN TENGAH"}
+                              </span>
+                            </div>
+
+                            {savedComp ? (
+                              <p className="text-sm font-semibold text-[#1E293B] leading-relaxed bg-[#ECFDF5] p-3.5 rounded-lg border border-[#A7F3D0]">
+                                &ldquo;{savedComp.agreementText}&rdquo;
+                              </p>
+                            ) : (
+                              <p className="text-xs sm:text-sm text-[#475569] leading-relaxed font-serif italic">
+                                &ldquo;Kedua pilihan berangkat dari niat menjaga
+                                kestabilan rumah tangga. Sepakati batas angka
+                                dan prosedur komunikasi agar tidak ada pihak
+                                yang merasa dilangkahi.&rdquo;
+                              </p>
+                            )}
+
+                            <div className="pt-1">
+                              <button
+                                type="button"
+                                onClick={() => openCompromiseModal(scenario.id)}
+                                className="min-h-[44px] px-4 py-2 bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                              >
+                                {savedComp
+                                  ? "Ubah Rumusan Kompromi"
+                                  : "Tulis Kesepakatan Kompromi"}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       )}
                     </div>
-                  </div>
+                  );
+                })}
+              </section>
+            )}
 
-                  {/* Expanded Content */}
-                  {isOpen && (
-                    <div className="p-6 space-y-6 bg-slate-50/40">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* You chose */}
-                        <div className="bg-white p-4.5 rounded-xl border border-slate-200 space-y-2">
-                          <div className="flex items-center space-x-2">
-                            <span className="w-5 h-5 rounded-full bg-[#1E293B] text-white flex items-center justify-center text-[10px] font-bold">
-                              {myName?.[0]?.toUpperCase() || "Y"}
-                            </span>
-                            <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                              {myName || "YOU"} CHOSE
-                            </span>
+            {/* Aligned Scenarios List */}
+            <section className="space-y-4">
+              <h2 className="text-lg font-extrabold text-[#1E293B]">
+                Topik yang Sudah Selaras ({alignedScenarios.length} Skenario)
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {alignedScenarios.map(({ scenario, score }) => {
+                  const myAns = me?.answers[scenario.id];
+                  const myOpt = scenario.options.find(
+                    (o) => o.key === myAns?.choice
+                  );
+                  return (
+                    <div
+                      key={scenario.id}
+                      className="bg-[#FFFFFF] p-4 rounded-xl border border-[#CBD5E1] flex items-start justify-between gap-3"
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <CheckCircle2 className="w-4 h-4 text-[#0F766E] shrink-0 mt-0.5" />
+                        <div>
+                          <div className="text-xs sm:text-sm font-bold text-[#1E293B]">
+                            #{scenario.id}: {scenario.title}
                           </div>
-                          <p className="text-xs sm:text-sm text-[#1E293B] font-medium leading-relaxed">
-                            Option {myAns?.choice} — {myOpt?.text || "Not answered"}
-                          </p>
-                          {myAns?.amount && (
-                            <div className="text-xs font-mono font-bold text-[#0F766E] pt-1">
-                              Allocation: {formatIDR(myAns.amount)}
-                            </div>
-                          )}
-                          {myAns?.note && (
-                            <div className="text-xs text-slate-500 italic pt-1 border-t border-slate-100">
-                              &ldquo;{myAns.note}&rdquo;
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Partner chose */}
-                        <div className="bg-white p-4.5 rounded-xl border border-slate-200 space-y-2">
-                          <div className="flex items-center space-x-2">
-                            <span className="w-5 h-5 rounded-full bg-[#0F766E] text-white flex items-center justify-center text-[10px] font-bold">
-                              {partnerName?.[0]?.toUpperCase() || "P"}
-                            </span>
-                            <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                              {partnerName || "PARTNER"} CHOSE
-                            </span>
+                          <div className="text-xs text-[#475569] mt-0.5">
+                            Opsi {myAns?.choice || "A"}:{" "}
+                            {myOpt?.text || "Selaras"}
                           </div>
-                          <p className="text-xs sm:text-sm text-[#1E293B] font-medium leading-relaxed">
-                            Option {partnerAns?.choice} — {partnerOpt?.text || "Not answered"}
-                          </p>
-                          {partnerAns?.amount && (
-                            <div className="text-xs font-mono font-bold text-[#0F766E] pt-1">
-                              Allocation: {formatIDR(partnerAns.amount)}
-                            </div>
-                          )}
-                          {partnerAns?.note && (
-                            <div className="text-xs text-slate-500 italic pt-1 border-t border-slate-100">
-                              &ldquo;{partnerAns.note}&rdquo;
-                            </div>
-                          )}
                         </div>
                       </div>
-
-                      {/* Bridge Callout */}
-                      <div className="bg-white p-5 rounded-xl border border-[#0F766E]/30 space-y-3">
-                        <div className="flex items-center space-x-2 text-[#0F766E] text-xs font-bold uppercase tracking-wider">
-                          <Sparkles className="w-4 h-4" />
-                          <span>Neutral Compromise Suggestion</span>
-                        </div>
-                        <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-serif-quote italic">
-                          &ldquo;Both perspectives stem from care for financial security and family duty.
-                          Bridging this gap requires clear rules on notification and emergency caps.&rdquo;
-                        </p>
-                        <div className="pt-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedScenarioForModal(scenario.id);
-                              setModalOpen(true);
-                            }}
-                            className="px-4 py-2 bg-[#0F766E] hover:bg-[#0D625C] text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition cursor-pointer"
-                          >
-                            <span>Open Compromise Options</span>
-                            <ArrowRight className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
+                      <span className="text-xs font-mono font-bold text-[#065F46] px-2 py-0.5 rounded bg-[#ECFDF5] border border-[#A7F3D0] shrink-0 tabular-nums">
+                        {score}%
+                      </span>
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* Bottom Proceed Bar */}
+            <div className="flex flex-wrap items-center justify-between gap-4 pt-6 border-t border-[#CBD5E1]">
+              <button
+                type="button"
+                onClick={onBackToDashboard}
+                className="min-h-[44px] px-4 py-2.5 rounded-lg border border-[#CBD5E1] bg-[#FFFFFF] hover:bg-[#F1F5F9] text-xs font-bold text-[#1E293B] cursor-pointer"
+              >
+                Kembali ke Dashboard Ruang
+              </button>
+              <button
+                type="button"
+                onClick={onProceedToCharter}
+                className="min-h-[48px] px-6 py-3 bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] rounded-lg text-sm font-bold flex items-center gap-2 transition-colors cursor-pointer"
+              >
+                <FileSignature className="w-4 h-4" />
+                <span>Lanjut ke Piagam Kesepakatan Modul {moduleId}</span>
+              </button>
+            </div>
+          </>
         )}
-
-        {/* Aligned Scenarios List */}
-        <div className="space-y-4">
-          <h2 className="text-lg font-bold text-[#1E293B]">
-            Where you aligned ({alignedScenarios.length} Scenarios)
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {alignedScenarios.map(({ scenario, score }) => {
-              const myAns = me?.answers[scenario.id];
-              return (
-                <div
-                  key={scenario.id}
-                  className="bg-white p-4 rounded-xl border border-emerald-200/60 flex items-center justify-between"
-                >
-                  <div className="flex items-center space-x-2.5">
-                    <CheckCircle2 className="w-4 h-4 text-[#0F766E] shrink-0" />
-                    <div>
-                      <div className="text-xs font-bold text-slate-800">
-                        #{scenario.id}: {scenario.title}
-                      </div>
-                      <div className="text-[11px] text-slate-500">
-                        Both chose: Option {myAns?.choice || "A"}
-                      </div>
-                    </div>
-                  </div>
-                  <span className="text-xs font-mono font-bold text-[#0F766E] px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-100">
-                    {score}%
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Bottom Proceed Bar */}
-        <div className="flex items-center justify-between pt-6 border-t border-slate-200">
-          <button
-            onClick={onBackToDashboard}
-            className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900"
-          >
-            ← Back to Dashboard
-          </button>
-          <button
-            onClick={onProceedToCharter}
-            className="px-6 py-3 bg-[#0F766E] hover:bg-[#0D625C] text-white rounded-xl text-sm font-semibold flex items-center space-x-2 shadow-md cursor-pointer"
-          >
-            <span>Proceed to Living Charter</span>
-            <ArrowRight className="w-4 h-4" />
-          </button>
-        </div>
       </main>
 
       {/* Compromise Modal */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 bg-[#1E293B]/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-xl w-full p-6 sm:p-7 space-y-6 shadow-2xl border border-slate-200">
-            <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="compromise-modal-title"
+          className="fixed inset-0 z-50 bg-[#1E293B]/70 flex items-center justify-center p-4"
+        >
+          <div className="bg-[#FFFFFF] rounded-xl max-w-xl w-full p-6 sm:p-7 space-y-5 border border-[#CBD5E1]">
+            <div className="flex items-start justify-between border-b border-[#E2E8F0] pb-4">
               <div>
-                <span className="text-[10px] font-mono uppercase tracking-widest text-slate-400 font-bold">
-                  Compromise Engine · Scenario #{selectedScenarioForModal}
+                <span className="text-xs font-mono uppercase tracking-wider text-[#0F766E] font-bold block">
+                  RUMUSAN KOMPROMI · SKENARIO #{selectedScenarioForModal}
                 </span>
-                <h3 className="text-lg font-bold text-[#1E293B] mt-0.5">
-                  Reach a Mutual Middle Ground
+                <h3
+                  id="compromise-modal-title"
+                  className="text-lg font-extrabold text-[#1E293B] mt-0.5"
+                >
+                  {SCENARIOS.find((s) => s.id === selectedScenarioForModal)
+                    ?.title || `Skenario #${selectedScenarioForModal}`}
                 </h3>
               </div>
               <button
+                type="button"
+                aria-label="Tutup jendela kompromi"
                 onClick={() => setModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-[#475569] hover:text-[#1E293B] hover:bg-[#F1F5F9] cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-3">
-              {[
-                "Fixed Emergency Limit: Draw from joint account up to IDR 2.000.000, any excess requires 24h discussion.",
-                "Discretionary Split: 50% from joint emergency savings, 50% from personal discretionary allowance over 3 months.",
-                "Dedicated Family Pot: Allocate 7.5% of combined monthly take-home pay strictly for extended family requests.",
-              ].map((optText, idx) => (
+            <div className="space-y-2.5">
+              <div className="text-xs font-bold uppercase tracking-wider text-[#475569]">
+                Pilih Templat Kesepakatan atau Tulis Sendiri:
+              </div>
+              {COMPROMISE_TEMPLATES.map((optText, idx) => (
                 <button
                   key={idx}
                   type="button"
-                  onClick={() => setSelectedSuggestion(idx + 1)}
-                  className={`w-full text-left p-4 rounded-xl border transition flex items-center justify-between cursor-pointer ${
-                    selectedSuggestion === idx + 1
-                      ? "border-[#0F766E] bg-emerald-50/40 ring-1 ring-[#0F766E]"
-                      : "border-[#E2E8F0] hover:bg-slate-50"
+                  onClick={() => {
+                    setSelectedSuggestion(idx);
+                    setCustomAgreement(optText);
+                  }}
+                  className={`w-full text-left p-3.5 rounded-lg border-2 transition-colors flex items-start justify-between gap-3 cursor-pointer ${
+                    selectedSuggestion === idx
+                      ? "border-[#0F766E] bg-[#F0FDFA]"
+                      : "border-[#CBD5E1] bg-[#FFFFFF] hover:bg-[#F8FAF7]"
                   }`}
                 >
-                  <span className="text-xs sm:text-sm font-medium text-slate-800">
+                  <span className="text-xs sm:text-sm font-medium text-[#1E293B] leading-relaxed">
                     {optText}
                   </span>
                   <div
-                    className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ml-3 ${
-                      selectedSuggestion === idx + 1
+                    className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 ${
+                      selectedSuggestion === idx
                         ? "border-[#0F766E] bg-[#0F766E]"
-                        : "border-slate-300"
+                        : "border-[#475569]"
                     }`}
                   >
-                    {selectedSuggestion === idx + 1 && (
-                      <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                    {selectedSuggestion === idx && (
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#FFFFFF]" />
                     )}
                   </div>
                 </button>
               ))}
             </div>
 
-            {/* Custom Agreement Input */}
             <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                Custom agreement terms (optional)
+              <label
+                htmlFor="custom-agreement-input"
+                className="block text-xs font-bold uppercase tracking-wider text-[#1E293B] mb-1.5"
+              >
+                Bunyi Pasal Kesepakatan untuk Dicantumkan di Piagam
               </label>
               <textarea
-                rows={2}
+                id="custom-agreement-input"
+                rows={3}
                 value={customAgreement}
                 onChange={(e) => setCustomAgreement(e.target.value)}
-                maxLength={280}
-                placeholder="Write your custom terms..."
-                className="w-full p-3 text-xs rounded-xl border border-[#E2E8F0] focus:border-[#0F766E] outline-hidden resize-none"
+                maxLength={320}
+                placeholder="Tuliskan kesepakatan spesifik Anda dan pasangan..."
+                className="w-full p-3.5 text-xs sm:text-sm rounded-lg border border-[#CBD5E1] bg-[#FFFFFF] text-[#1E293B] focus:border-[#0F766E]"
               />
             </div>
 
-            <div className="flex items-center justify-end space-x-3 pt-2 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-[#E2E8F0]">
               <button
                 type="button"
                 onClick={() => setModalOpen(false)}
-                className="px-4 py-2 border border-[#E2E8F0] text-slate-700 rounded-lg text-xs font-semibold cursor-pointer"
+                className="min-h-[44px] px-4 py-2 border border-[#CBD5E1] bg-[#FFFFFF] hover:bg-[#F1F5F9] text-[#1E293B] rounded-lg text-xs font-bold cursor-pointer"
               >
-                Cancel
+                Batal
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  const optionsMap: Record<number, string> = {
-                    1: "Fixed Emergency Limit: Draw from joint account up to IDR 2.000.000, any excess requires 24h discussion.",
-                    2: "Discretionary Split: 50% from joint emergency savings, 50% from personal discretionary allowance over 3 months.",
-                    3: "Dedicated Family Pot: Allocate 7.5% of combined monthly take-home pay strictly for extended family requests.",
-                  };
-                  const text = customAgreement.trim() || optionsMap[selectedSuggestion];
-                  const sc = SCENARIOS.find((s) => s.id === selectedScenarioForModal);
+                  const text =
+                    customAgreement.trim() ||
+                    COMPROMISE_TEMPLATES[selectedSuggestion];
+                  const sc = SCENARIOS.find(
+                    (s) => s.id === selectedScenarioForModal
+                  );
                   saveCompromise({
                     scenarioId: selectedScenarioForModal,
-                    title: sc?.title || `Scenario #${selectedScenarioForModal}`,
+                    title: sc?.title || `Skenario #${selectedScenarioForModal}`,
                     agreementText: text,
                   });
                   setModalOpen(false);
-                  onProceedToCharter();
                 }}
-                className="px-5 py-2 bg-[#0F766E] hover:bg-[#0D625C] text-white rounded-lg text-xs font-semibold cursor-pointer"
+                className="min-h-[44px] px-5 py-2 bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] rounded-lg text-xs font-bold cursor-pointer"
               >
-                Save & Add to Living Charter
+                Simpan Pasal ke Piagam
               </button>
             </div>
           </div>

@@ -1,9 +1,28 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AppHeader } from "./AppHeader";
-import { Check, Clock, Lock, Sparkles, ArrowRight, FileText, ShieldCheck } from "lucide-react";
-import { useRoom } from "../lib/sessionStore";
+import {
+  Check,
+  Clock,
+  Lock,
+  FileText,
+  ShieldCheck,
+  Scale,
+  BookOpen,
+  SlidersHorizontal,
+  MessageCircle,
+  Home,
+  Users,
+} from "lucide-react";
+import {
+  useRoom,
+  activateRoomSession,
+  simulatePartnerLock,
+  type Answer,
+} from "../lib/sessionStore";
 import { SCENARIOS, MODULES } from "../data/scenarios";
 
 interface DashboardProps {
@@ -19,6 +38,7 @@ export const DashboardPage: React.FC<DashboardProps> = ({
   onViewCharter,
   onViewWaiting,
 }) => {
+  const router = useRouter();
   const {
     room,
     myName,
@@ -33,33 +53,42 @@ export const DashboardPage: React.FC<DashboardProps> = ({
   } = useRoom();
 
   const roomCode = room?.code || "VWS-000";
+  const encodedRoom = encodeURIComponent(roomCode);
 
-  // Determine current active module (first incomplete module, or 4 if all completed)
-  const activeModuleId = [1, 2, 3, 4].find((id) => !completedModules.includes(id)) || 4;
-  const allModulesCompleted = [1, 2, 3, 4].every((id) => completedModules.includes(id));
+  const activeModuleId =
+    [1, 2, 3, 4].find((id) => !completedModules.includes(id)) || 4;
+  const allModulesCompleted = [1, 2, 3, 4].every((id) =>
+    completedModules.includes(id)
+  );
 
-  const activeModuleMeta = MODULES.find((m) => m.id === activeModuleId) || MODULES[0];
+  const activeModuleMeta =
+    MODULES.find((m) => m.id === activeModuleId) || MODULES[0];
 
   const isActiveUserLocked = isUserLocked(activeModuleId);
   const isActivePartnerLocked = isPartnerLocked(activeModuleId);
   const isActiveBothLocked = isBothLocked(activeModuleId);
 
-  // Helper to count answered dilemmas for a specific module
-  const getModuleAnswerCount = (answers: Record<number, any> | undefined, modId: number) => {
+  const getModuleAnswerCount = (
+    answers: Record<number, Answer> | undefined,
+    modId: number
+  ) => {
     if (!answers) return 0;
     const modScenarios = SCENARIOS.filter((s) => s.moduleId === modId);
-    return modScenarios.filter((s) => answers[s.id] !== undefined).length;
+    return modScenarios.filter((s) => answers[s.id]?.choice !== undefined).length;
   };
 
   const myActiveAnswerCount = getModuleAnswerCount(me?.answers, activeModuleId);
   const partnerRole = role === "host" ? "guest" : "host";
-  const partnerActiveAnswerCount = getModuleAnswerCount(room?.[partnerRole]?.answers, activeModuleId);
+  const partnerActiveAnswerCount = getModuleAnswerCount(
+    room?.[partnerRole]?.answers,
+    activeModuleId
+  );
 
   const handleOpenCharter = (modId: number) => {
     if (onViewCharter) {
       onViewCharter(modId);
     } else {
-      window.location.href = `/room/${roomCode}/charter?module=${modId}`;
+      router.push(`/room/${encodedRoom}/charter?module=${modId}`);
     }
   };
 
@@ -67,105 +96,155 @@ export const DashboardPage: React.FC<DashboardProps> = ({
     if (onViewWaiting) {
       onViewWaiting(modId);
     } else {
-      window.location.href = `/room/${roomCode}/waiting?module=${modId}`;
+      router.push(`/room/${encodedRoom}/waiting?module=${modId}`);
     }
   };
 
+  const handleSwitchRole = () => {
+    const nextRole = role === "host" ? "guest" : "host";
+    activateRoomSession(roomCode, nextRole);
+  };
+
   return (
-    <div className="min-h-screen bg-[#F1F5F9] flex flex-col">
+    <div className="min-h-screen bg-[#F8FAF7] text-[#1E293B] flex flex-col">
       <AppHeader
         roomCode={roomCode}
+        moduleId={activeModuleId}
         progressText={
           allModulesCompleted
-            ? "Semua 4 Modul Telah Selesai & Diratifikasi!"
-            : `Progres Modul: ${completedModules.length}/4 Selesai (Aktif: Modul ${activeModuleId})`
+            ? "Seluruh 4 Modul Selesai Diratifikasi"
+            : `Progres: ${completedModules.length}/4 Modul · Aktif Modul ${activeModuleId}`
         }
         isEncrypted={true}
-        userNames={`${myName || "You"} & ${partnerName || "Partner"}`}
+        userNames={`${myName || "Anda"} & ${partnerName || "Pasangan"}`}
       />
 
-      <main className="max-w-6xl w-full mx-auto px-4 sm:px-8 py-8 flex-1 space-y-8">
-        {/* Welcome Banner */}
-        <div className="space-y-1">
-          <div className="flex items-center flex-wrap gap-3">
-            <span className="text-xs font-mono font-bold tracking-widest text-[#475569] uppercase">
-              Room {roomCode} · Role: {role.toUpperCase()}
-            </span>
-            {room?.passcode && (
-              <span className="px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-xs font-mono font-bold text-[#0F766E]">
-                PIN: {room.passcode}
+      <main className="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 space-y-8">
+        {/* Top Metadata & Role Strip */}
+        <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 pb-6 border-b border-[#E2E8F0]">
+          <div className="space-y-2">
+            <div className="flex items-center flex-wrap gap-2">
+              <Link
+                href="/"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-[#CBD5E1] bg-[#FFFFFF] hover:bg-[#F1F5F9] text-xs font-semibold text-[#1E293B]"
+              >
+                <Home className="w-3.5 h-3.5 text-[#0F766E]" />
+                <span>Beranda</span>
+              </Link>
+              <span className="px-2.5 py-1 rounded-md bg-[#FFFFFF] border border-[#CBD5E1] text-xs font-mono font-bold text-[#1E293B]">
+                RUANG: {roomCode}
               </span>
-            )}
+              {room?.passcode && (
+                <span className="px-2.5 py-1 rounded-md bg-[#F0FDFA] border border-[#99F6E4] text-xs font-mono font-bold text-[#0F766E]">
+                  PIN: {room.passcode}
+                </span>
+              )}
+              <span className="px-2.5 py-1 rounded-md bg-[#F1F5F9] border border-[#E2E8F0] text-xs font-semibold text-[#475569]">
+                Peran Aktif: {role === "host" ? "Pembuat Ruang (Host)" : "Pasangan (Guest)"}
+              </span>
+            </div>
+
+            <h1 className="text-2xl sm:text-4xl font-extrabold text-[#1E293B] tracking-tight">
+              Dashboard Keselarasan, {myName || "Anda"}.
+            </h1>
+            <p className="text-sm sm:text-base text-[#475569] max-w-2xl">
+              {allModulesCompleted
+                ? "Seluruh 4 pilar kurikulum pra-nikah telah diselesaikan dan disahkan dalam Piagam Kesepakatan."
+                : isActiveBothLocked
+                ? `Segel Modul ${activeModuleId} telah terbuka karena kedua pihak selesai menjawab. Tinjau peta keselarasan dan rumuskan kompromi.`
+                : isActiveUserLocked
+                ? `Jawaban Modul ${activeModuleId} Anda telah disegel. Menunggu ${partnerName} mengunci 10 skenario.`
+                : `Kerjakan 10 skenario pada Modul ${activeModuleId} secara jujur. Pilihan Anda disegel sampai ${partnerName} selesai menjawab.`}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button
+              type="button"
+              onClick={handleSwitchRole}
+              className="min-h-[44px] px-3.5 py-2 rounded-lg border border-[#CBD5E1] bg-[#FFFFFF] hover:bg-[#F1F5F9] text-xs font-bold text-[#1E293B] flex items-center gap-1.5 cursor-pointer"
+              title="Ganti sudut pandang antara Host dan Guest pada perangkat ini"
+            >
+              <Users className="w-4 h-4 text-[#0F766E]" />
+              <span>
+                Beralih ke Sudut Pandang {role === "host" ? partnerName : myName}
+              </span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => {
                 const inviteLink = `${window.location.origin}/?room=${roomCode}&pin=${room?.passcode || ""}`;
                 const text = encodeURIComponent(
-                  `Hai! Masuk ke room kesepakatan pra-nikah kita di VowSync:\nKode Room: *${roomCode}*\nPIN: *${room?.passcode || ""}*\nLink: ${inviteLink}`
+                  `Hai! Masuk ke ruang kesepakatan pra-nikah kita di VowSync:\nKode Ruang: *${roomCode}*\nPIN Rahasia: *${room?.passcode || ""}*\nTautan: ${inviteLink}`
                 );
                 window.open(`https://wa.me/?text=${text}`, "_blank");
               }}
-              className="text-xs text-[#0F766E] hover:underline flex items-center space-x-1 cursor-pointer font-semibold"
+              className="min-h-[44px] px-3.5 py-2 rounded-lg bg-[#065F46] hover:bg-[#047857] text-[#FFFFFF] text-xs font-bold flex items-center gap-1.5 cursor-pointer"
             >
-              <span>Bagikan Link &amp; PIN via WhatsApp</span>
+              <MessageCircle className="w-4 h-4" />
+              <span>Undang via WhatsApp</span>
             </button>
           </div>
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-[#1E293B] tracking-tight">
-            Selamat datang, {myName || "User"}.
-          </h1>
-          <p className="text-sm sm:text-base text-[#475569]">
-            {allModulesCompleted
-              ? "Luar biasa! Seluruh 4 modul pilar pra-nikah telah Anda berdua selesaikan dan tanda tangani."
-              : isActiveBothLocked
-              ? `Jawaban Modul ${activeModuleId} telah dikunci oleh Anda dan pasangan! Buka hasil sekarang.`
-              : isActiveUserLocked
-              ? `Jawaban Modul ${activeModuleId} Anda telah dikunci. Menunggu ${partnerName} menyelesaikan.`
-              : `Selesaikan 10 dilema pada Modul ${activeModuleId}. Jawaban tersimpan rahasia (blind) hingga keduanya mengunci.`}
-          </p>
         </div>
 
         {/* Sync Status & Next Action Row */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
           {/* Sync Progress Card for Active Module */}
-          <div className="lg:col-span-7 bg-white rounded-2xl p-6 border border-[#E2E8F0] shadow-xs space-y-5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-[#1E293B]">
-                {allModulesCompleted
-                  ? "Seluruh 4 Modul Telah Selesai"
-                  : `Status Sinkronisasi Modul ${activeModuleId}: ${activeModuleMeta.title}`}
-              </h2>
-              <span className="text-xs font-mono font-semibold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                {completedModules.length} / 4 Modul Disepakati
+          <div className="lg:col-span-7 bg-[#FFFFFF] rounded-xl p-6 border border-[#CBD5E1] space-y-5">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div>
+                <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#0F766E] block">
+                  STATUS SEGEL GANDA · MODUL AKTIF 0{activeModuleId}
+                </span>
+                <h2 className="text-base sm:text-lg font-bold text-[#1E293B] mt-0.5">
+                  {allModulesCompleted
+                    ? "Seluruh 4 Modul Telah Diratifikasi"
+                    : activeModuleMeta.title}
+                </h2>
+              </div>
+              <span className="text-xs font-mono font-bold px-2.5 py-1 rounded bg-[#F1F5F9] text-[#1E293B] border border-[#CBD5E1]">
+                {completedModules.length} / 4 Modul Selesai
               </span>
             </div>
 
-            {/* You Progress */}
+            {/* User Progress */}
             <div className="space-y-2">
-              <div className="flex justify-between items-center text-xs font-semibold">
-                <span className="flex items-center space-x-1.5 text-[#0F766E]">
-                  {isActiveUserLocked || completedModules.includes(activeModuleId) ? (
-                    <span className="w-4 h-4 rounded-full bg-[#0F766E] text-white flex items-center justify-center text-[10px]">✓</span>
-                  ) : (
-                    <span className="w-4 h-4 rounded-full bg-slate-300 text-slate-700 flex items-center justify-center text-[10px]">●</span>
-                  )}
+              <div className="flex justify-between items-center text-xs font-bold">
+                <span className="flex items-center gap-2 text-[#1E293B]">
+                  <span
+                    className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold ${
+                      isActiveUserLocked ||
+                      completedModules.includes(activeModuleId)
+                        ? "bg-[#0F766E] text-[#FFFFFF]"
+                        : "bg-[#E2E8F0] text-[#1E293B]"
+                    }`}
+                  >
+                    {isActiveUserLocked ||
+                    completedModules.includes(activeModuleId)
+                      ? "✓"
+                      : "1"}
+                  </span>
                   <span>Anda ({myName})</span>
                 </span>
-                <span className="text-[#0F766E]">
+                <span className="font-mono text-[#0F766E]">
                   {completedModules.includes(activeModuleId)
-                    ? "Selesai & Disepakati"
+                    ? "Disahkan di Piagam"
                     : isActiveUserLocked
                     ? "Terkunci & Disegel (10/10)"
-                    : `${myActiveAnswerCount}/10 Dilemma`}
+                    : `${myActiveAnswerCount}/10 Skenario Dijawab`}
                 </span>
               </div>
-              {/* Segmented bar for User */}
               <div className="grid grid-cols-10 gap-1.5">
                 {Array.from({ length: 10 }).map((_, i) => (
                   <div
                     key={i}
-                    className={`h-2 rounded-xs ${
-                      completedModules.includes(activeModuleId) || isActiveUserLocked || i < myActiveAnswerCount
+                    className={`h-2.5 rounded-xs ${
+                      completedModules.includes(activeModuleId) ||
+                      isActiveUserLocked ||
+                      i < myActiveAnswerCount
                         ? "bg-[#0F766E]"
-                        : "bg-slate-200"
+                        : "bg-[#E2E8F0]"
                     }`}
                   />
                 ))}
@@ -174,127 +253,163 @@ export const DashboardPage: React.FC<DashboardProps> = ({
 
             {/* Partner Progress */}
             <div className="space-y-2">
-              <div className="flex justify-between items-center text-xs font-semibold">
-                <span className="flex items-center space-x-1.5 text-slate-700">
-                  {isActivePartnerLocked || completedModules.includes(activeModuleId) ? (
-                    <span className="w-4 h-4 rounded-full bg-[#0F766E] text-white flex items-center justify-center text-[10px]">✓</span>
-                  ) : (
-                    <span className="w-4 h-4 rounded-full bg-amber-400 text-white flex items-center justify-center text-[10px]">…</span>
-                  )}
+              <div className="flex justify-between items-center text-xs font-bold">
+                <span className="flex items-center gap-2 text-[#1E293B]">
+                  <span
+                    className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold ${
+                      isActivePartnerLocked ||
+                      completedModules.includes(activeModuleId)
+                        ? "bg-[#0F766E] text-[#FFFFFF]"
+                        : "bg-[#FFFBEB] text-[#92400E] border border-[#FDE68A]"
+                    }`}
+                  >
+                    {isActivePartnerLocked ||
+                    completedModules.includes(activeModuleId)
+                      ? "✓"
+                      : "2"}
+                  </span>
                   <span>Pasangan ({partnerName})</span>
                 </span>
-                <span className="text-slate-500">
+                <span className="font-mono text-[#475569]">
                   {completedModules.includes(activeModuleId)
-                    ? "Selesai & Disepakati"
+                    ? "Disahkan di Piagam"
                     : isActivePartnerLocked
                     ? "Terkunci & Disegel (10/10)"
-                    : `${partnerActiveAnswerCount}/10 Dilemma`}
+                    : `${partnerActiveAnswerCount}/10 Skenario Dijawab`}
                 </span>
               </div>
-              {/* Segmented bar for Partner */}
               <div className="grid grid-cols-10 gap-1.5">
                 {Array.from({ length: 10 }).map((_, i) => (
                   <div
                     key={i}
-                    className={`h-2 rounded-xs ${
-                      completedModules.includes(activeModuleId) || isActivePartnerLocked || i < partnerActiveAnswerCount
-                        ? "bg-amber-400"
-                        : "bg-slate-200"
+                    className={`h-2.5 rounded-xs ${
+                      completedModules.includes(activeModuleId) ||
+                      isActivePartnerLocked ||
+                      i < partnerActiveAnswerCount
+                        ? "bg-[#B45309]"
+                        : "bg-[#E2E8F0]"
                     }`}
                   />
                 ))}
               </div>
             </div>
 
-            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-              <div className="flex items-center space-x-1.5">
+            <div className="pt-3 border-t border-[#E2E8F0] flex flex-wrap items-center justify-between gap-2 text-xs text-[#475569]">
+              <div className="flex items-center gap-1.5 font-medium">
                 <Lock className="w-3.5 h-3.5 text-[#0F766E]" />
-                <span>Zero-leakage dual blind active</span>
+                <span>Segel Dual-Blind aktif tanpa kebocoran jawaban</span>
               </div>
-              <span>
-                {allModulesCompleted
-                  ? "Semua modul selesai diratifikasi 🎉"
-                  : isActiveBothLocked
-                  ? `Modul ${activeModuleId} Keduanya Terkunci 🔒`
-                  : "Menunggu penyelesaian dilema"}
-              </span>
+              {!isActivePartnerLocked && !allModulesCompleted && (
+                <button
+                  type="button"
+                  onClick={() => simulatePartnerLock(activeModuleId)}
+                  className="font-bold text-[#0F766E] hover:underline cursor-pointer"
+                >
+                  Simulasikan {partnerName} Selesai (Mode Uji)
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Action Callout Card */}
-          <div className="lg:col-span-5 bg-[#1E293B] text-white rounded-2xl p-6 flex flex-col justify-between shadow-xs">
-            <div>
-              <div className="flex items-center space-x-1.5 text-xs text-slate-300 font-semibold mb-3">
-                <Clock className="w-4 h-4 text-[#0F766E]" />
-                <span>
-                  {allModulesCompleted ? "Selesai Lengkap" : `Estimasi: ${activeModuleMeta.estimatedTime}`}
+          {/* Primary Action Card */}
+          <div className="lg:col-span-5 bg-[#1E293B] text-[#FFFFFF] rounded-xl p-6 flex flex-col justify-between border border-[#334155]">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-[#CBD5E1] font-mono">
+                <span className="flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-[#5EEAD4]" />
+                  <span>
+                    {allModulesCompleted
+                      ? "KURIKULUM LENGKAP"
+                      : `ESTIMASI: ${activeModuleMeta.estimatedTime.toUpperCase()}`}
+                  </span>
                 </span>
+                <span>MOD-0{activeModuleId}</span>
               </div>
-              <h3 className="text-xl font-bold tracking-tight mb-1">
+
+              <h3 className="text-xl font-bold tracking-tight">
                 {allModulesCompleted
-                  ? "Semua 4 Modul Selesai!"
+                  ? "Seluruh 4 Modul Selesai Diratifikasi"
                   : isActiveBothLocked
-                  ? `Jawaban Modul ${activeModuleId} Siap Dibuka!`
+                  ? `Jawaban Modul ${activeModuleId} Siap Dibandingkan`
                   : isActiveUserLocked
-                  ? `Menunggu Jawaban ${partnerName}`
+                  ? `Menunggu ${partnerName} Mengunci Jawaban`
                   : myActiveAnswerCount > 0
-                  ? `Lanjutkan Modul ${activeModuleId}`
-                  : `Mulai Modul ${activeModuleId}`}
+                  ? `Lanjutkan Pengisian Modul ${activeModuleId}`
+                  : `Mulai Modul ${activeModuleId}: ${activeModuleMeta.title}`}
               </h3>
-              <p className="text-xs text-slate-400">
+
+              <p className="text-xs sm:text-sm text-[#CBD5E1] leading-relaxed">
                 {allModulesCompleted
-                  ? "Piagam Living Charter lengkap Anda telah diratifikasi dan siap dicetak/diunduh."
+                  ? "Dokumen Piagam Kesepakatan Pra-Nikah untuk seluruh 4 pilar telah ditandatangani dan siap dicetak."
                   : isActiveBothLocked
-                  ? `Anda dan ${partnerName} telah mengunci jawaban. Buka Dual Reveal Heatmap sekarang.`
+                  ? `Anda dan ${partnerName} telah mengunci seluruh 10 skenario. Buka halaman Hasil untuk meninjau kecocokan dan menulis kompromi.`
                   : isActiveUserLocked
-                  ? `Jawaban Modul ${activeModuleId} Anda telah dikunci. Menunggu ${partnerName} menyelesaikan.`
+                  ? `Pilihan Anda sudah aman di balik segel. Anda dapat memantau ruang tunggu atau mensimulasikan jawaban pasangan.`
                   : activeModuleMeta.subtitle}
               </p>
             </div>
 
-            {allModulesCompleted ? (
-              <button
-                onClick={() => handleOpenCharter(4)}
-                className="mt-6 w-full py-3 px-5 bg-[#0F766E] hover:bg-[#0D625C] text-white rounded-xl text-sm font-semibold flex items-center justify-center space-x-2 transition cursor-pointer"
-              >
-                <ShieldCheck className="w-4 h-4" />
-                <span>Buka Living Charter Lengkap</span>
-              </button>
-            ) : isActiveBothLocked ? (
-              <button
-                onClick={() => onRevealAnswers(activeModuleId)}
-                className="mt-6 w-full py-3 px-5 bg-[#0F766E] hover:bg-[#0D625C] text-white rounded-xl text-sm font-semibold flex items-center justify-center space-x-2 transition cursor-pointer"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>Reveal Bersama (Modul {activeModuleId})</span>
-              </button>
-            ) : isActiveUserLocked ? (
-              <button
-                onClick={() => handleOpenWaiting(activeModuleId)}
-                className="mt-6 w-full py-3 px-5 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-sm font-semibold flex items-center justify-center space-x-2 transition cursor-pointer"
-              >
-                <Clock className="w-4 h-4" />
-                <span>Lihat Status / Ruang Tunggu</span>
-              </button>
-            ) : (
-              <button
-                onClick={() => onStartModule(activeModuleId)}
-                className="mt-6 w-full py-3 px-5 bg-[#0F766E] hover:bg-[#0D625C] text-white rounded-xl text-sm font-semibold flex items-center justify-center space-x-2 transition cursor-pointer"
-              >
-                <span>
-                  {myActiveAnswerCount > 0 ? `Lanjutkan Modul ${activeModuleId}` : `Mulai Modul ${activeModuleId}`}
-                </span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            )}
+            <div className="pt-6 space-y-2">
+              {allModulesCompleted ? (
+                <button
+                  type="button"
+                  onClick={() => handleOpenCharter(4)}
+                  className="w-full min-h-[48px] py-3 px-5 bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Buka Piagam Kesepakatan Lengkap</span>
+                </button>
+              ) : isActiveBothLocked ? (
+                <button
+                  type="button"
+                  onClick={() => onRevealAnswers(activeModuleId)}
+                  className="w-full min-h-[48px] py-3 px-5 bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                >
+                  <Scale className="w-4 h-4" />
+                  <span>Buka Perbandingan Jawaban (Modul {activeModuleId})</span>
+                </button>
+              ) : isActiveUserLocked ? (
+                <button
+                  type="button"
+                  onClick={() => handleOpenWaiting(activeModuleId)}
+                  className="w-full min-h-[48px] py-3 px-5 bg-[#334155] hover:bg-[#475569] text-[#FFFFFF] rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                >
+                  <Clock className="w-4 h-4" />
+                  <span>Buka Ruang Tunggu Segel</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onStartModule(activeModuleId)}
+                  className="w-full min-h-[48px] py-3 px-5 bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                >
+                  <span>
+                    {myActiveAnswerCount > 0
+                      ? `Lanjutkan Skenario Modul ${activeModuleId}`
+                      : `Mulai Modul ${activeModuleId} Sekarang`}
+                  </span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* The Four Pillars Section */}
-        <div>
-          <h2 className="text-lg font-bold text-[#1E293B] mb-4">
-            The four pillars
-          </h2>
+        {/* Four Pillars Curriculum Grid */}
+        <section className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+            <div>
+              <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#0F766E] block">
+                KURIKULUM BERJENJANG
+              </span>
+              <h2 className="text-xl font-extrabold text-[#1E293B]">
+                Empat Pilar Keselarasan Pra-Nikah
+              </h2>
+            </div>
+            <p className="text-xs text-[#475569]">
+              Setiap modul baru terbuka setelah modul sebelumnya ditandatangani
+              di Piagam Kesepakatan.
+            </p>
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {MODULES.map((mod) => {
@@ -302,110 +417,132 @@ export const DashboardPage: React.FC<DashboardProps> = ({
               const isUnlocked = isModuleUnlocked(mod.id);
               const bothLock = isBothLocked(mod.id);
               const userLock = isUserLocked(mod.id);
+              const myModCount = getModuleAnswerCount(me?.answers, mod.id);
 
               return (
                 <div
                   key={mod.id}
-                  className={`bg-white rounded-2xl p-6 border shadow-xs transition flex flex-col justify-between ${
+                  className={`bg-[#FFFFFF] rounded-xl p-6 border transition-colors flex flex-col justify-between gap-5 ${
                     isCompleted
-                      ? "border-emerald-200 bg-emerald-50/20 hover:border-emerald-400"
+                      ? "border-[#0F766E]"
                       : isUnlocked
-                      ? "border-[#E2E8F0] hover:border-[#0F766E]"
-                      : "border-[#E2E8F0] opacity-60 bg-slate-50/50"
+                      ? "border-[#CBD5E1]"
+                      : "border-[#E2E8F0] bg-[#F1F5F9]"
                   }`}
                 >
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-2xl font-mono font-bold text-slate-300">
-                        {String(mod.id).padStart(2, "0")}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-lg font-mono font-bold text-[#1E293B]">
+                        MOD-0{mod.id}
                       </span>
 
                       {isCompleted ? (
-                        <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full bg-emerald-100 text-[#0F766E] text-xs font-bold border border-emerald-200">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#ECFDF5] text-[#065F46] text-xs font-bold border border-[#A7F3D0]">
                           <Check className="w-3.5 h-3.5" />
-                          <span>Selesai (Completed)</span>
+                          <span>Selesai &amp; Disahkan</span>
                         </span>
                       ) : bothLock ? (
-                        <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full bg-[#0F766E]/10 text-[#0F766E] text-xs font-bold border border-[#0F766E]/20">
-                          <Sparkles className="w-3.5 h-3.5" />
-                          <span>Ready to Reveal</span>
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#F0FDFA] text-[#0F766E] text-xs font-bold border border-[#99F6E4]">
+                          <Scale className="w-3.5 h-3.5" />
+                          <span>Siap Dibandingkan</span>
                         </span>
                       ) : userLock ? (
-                        <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 text-xs font-bold border border-amber-200">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#FFFBEB] text-[#92400E] text-xs font-bold border border-[#FDE68A]">
                           <Clock className="w-3.5 h-3.5" />
                           <span>Menunggu Pasangan</span>
                         </span>
                       ) : isUnlocked ? (
-                        <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full bg-emerald-50 text-[#0F766E] border border-emerald-200 text-xs font-bold">
-                          <Sparkles className="w-3.5 h-3.5" />
-                          <span>Unlocked · 10 Dilemmas</span>
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#F0FDFA] text-[#0F766E] border border-[#CCFBF1] text-xs font-bold">
+                          <span>Terbuka · {myModCount}/10 Dijawab</span>
                         </span>
                       ) : (
-                        <span className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 text-xs font-bold">
-                          <Lock className="w-3 h-3" />
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#FFFFFF] text-[#475569] border border-[#CBD5E1] text-xs font-bold">
+                          <Lock className="w-3.5 h-3.5" />
                           <span>Terkunci (Selesaikan Modul {mod.id - 1})</span>
                         </span>
                       )}
                     </div>
 
-                    <h3 className="text-lg font-bold text-[#1E293B] mb-1.5">
-                      {mod.title}
-                    </h3>
-                    <p className="text-xs sm:text-sm text-[#475569] mb-5">
-                      {mod.subtitle}
-                    </p>
+                    <div>
+                      <h3 className="text-lg font-bold text-[#1E293B]">
+                        {mod.title}
+                      </h3>
+                      <p className="text-xs sm:text-sm text-[#475569] mt-1 leading-relaxed">
+                        {mod.subtitle}
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="pt-2 flex items-center space-x-3">
-                    {isCompleted ? (
+                  <div className="pt-4 border-t border-[#E2E8F0] flex flex-wrap items-center gap-2">
+                    {isUnlocked ? (
                       <>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenCharter(mod.id)}
-                          className="px-4 py-2.5 bg-[#0F766E] hover:bg-[#0D625C] text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition cursor-pointer"
+                        {isCompleted ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenCharter(mod.id)}
+                              className="min-h-[44px] px-4 py-2 bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>Lihat Piagam</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onRevealAnswers(mod.id)}
+                              className="min-h-[44px] px-3.5 py-2 border border-[#CBD5E1] bg-[#FFFFFF] hover:bg-[#F1F5F9] text-[#1E293B] rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Scale className="w-3.5 h-3.5 text-[#0F766E]" />
+                              <span>Tinjau Hasil</span>
+                            </button>
+                          </>
+                        ) : bothLock ? (
+                          <button
+                            type="button"
+                            onClick={() => onRevealAnswers(mod.id)}
+                            className="min-h-[44px] px-4 py-2 bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Scale className="w-3.5 h-3.5" />
+                            <span>Buka Hasil &amp; Kompromi</span>
+                          </button>
+                        ) : userLock ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenWaiting(mod.id)}
+                            className="min-h-[44px] px-4 py-2 bg-[#1E293B] hover:bg-[#0F172A] text-[#FFFFFF] rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>Buka Ruang Tunggu</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => onStartModule(mod.id)}
+                            className="min-h-[44px] px-4 py-2 bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <BookOpen className="w-3.5 h-3.5" />
+                            <span>
+                              {myModCount > 0
+                                ? `Lanjutkan Modul ${mod.id}`
+                                : `Mulai Modul ${mod.id}`}
+                            </span>
+                          </button>
+                        )}
+
+                        <Link
+                          href={`/room/${encodedRoom}/dilemma?module=${mod.id}`}
+                          className="min-h-[44px] px-3 py-2 border border-[#CBD5E1] bg-[#F8FAF7] hover:bg-[#F1F5F9] text-[#1E293B] rounded-lg text-xs font-semibold inline-flex items-center gap-1.5"
                         >
-                          <FileText className="w-3.5 h-3.5" />
-                          <span>Lihat Piagam</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onRevealAnswers(mod.id)}
-                          className="px-3.5 py-2.5 border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold flex items-center space-x-1 transition cursor-pointer"
-                        >
-                          <span>Review Hasil</span>
-                        </button>
+                          <SlidersHorizontal className="w-3.5 h-3.5 text-[#475569]" />
+                          <span>10 Skenario</span>
+                        </Link>
                       </>
-                    ) : bothLock ? (
-                      <button
-                        type="button"
-                        onClick={() => onRevealAnswers(mod.id)}
-                        className="px-4 py-2.5 bg-[#0F766E] hover:bg-[#0D625C] text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition cursor-pointer"
-                      >
-                        <span>Reveal Answers</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
-                    ) : userLock ? (
-                      <button
-                        type="button"
-                        onClick={() => handleOpenWaiting(mod.id)}
-                        className="px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition cursor-pointer"
-                      >
-                        <span>Lihat Status</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
-                    ) : isUnlocked ? (
-                      <button
-                        type="button"
-                        onClick={() => onStartModule(mod.id)}
-                        className="px-4 py-2.5 bg-[#0F766E] hover:bg-[#0D625C] text-white rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition cursor-pointer"
-                      >
-                        <span>Mulai Modul {mod.id}</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
                     ) : (
-                      <div className="text-xs font-semibold text-slate-400 flex items-center space-x-1.5 py-2">
-                        <Lock className="w-3.5 h-3.5" />
-                        <span>Selesaikan Modul {mod.id - 1} untuk membuka</span>
+                      <div className="text-xs font-semibold text-[#475569] flex items-center gap-2 py-2">
+                        <Lock className="w-4 h-4 text-[#475569]" />
+                        <span>
+                          Selesaikan dan tanda tangani Piagam Modul {mod.id - 1}{" "}
+                          terlebih dahulu untuk membuka modul ini.
+                        </span>
                       </div>
                     )}
                   </div>
@@ -413,7 +550,7 @@ export const DashboardPage: React.FC<DashboardProps> = ({
               );
             })}
           </div>
-        </div>
+        </section>
       </main>
     </div>
   );
