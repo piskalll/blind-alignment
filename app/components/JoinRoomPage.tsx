@@ -23,18 +23,25 @@ import {
   Play,
   Menu,
   X,
+  Loader2,
+  Cloud,
+  Search,
 } from "lucide-react";
+import { toast } from "sonner";
 import {
   generateRoomCode,
   generatePasscode,
   createRoom,
+  createRoomAsync,
   joinRoom,
+  joinRoomAsync,
   listSavedRooms,
   activateRoomSession,
   createDemoRoom,
   useTheme,
   type RoomData,
 } from "../lib/sessionStore";
+import { isSupabaseConfigured } from "../lib/supabase";
 import { SCENARIOS } from "../data/scenarios";
 
 interface JoinRoomProps {
@@ -105,15 +112,24 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
     code: string;
     pin: string;
   } | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [createFieldError, setCreateFieldError] = useState<string | null>(null);
 
   const [joinUsername, setJoinUsername] = useState("");
   const [joinRoomCode, setJoinRoomCode] = useState("");
   const [joinPin, setJoinPin] = useState("");
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [isJoining, setIsJoining] = useState(false);
+  const [joinFieldErrors, setJoinFieldErrors] = useState<{
+    username?: string;
+    code?: string;
+    pin?: string;
+  }>({});
 
   const [savedRooms, setSavedRooms] = useState<RoomData[]>([]);
   const [ledgerStep, setLedgerStep] = useState<1 | 2 | 3>(2);
   const [selectedModuleId, setSelectedModuleId] = useState<number>(1);
+  const [searchKeyword, setSearchKeyword] = useState("");
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
@@ -133,16 +149,41 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
     }
   }, []);
 
-  const handleCreateRoom = (e: React.FormEvent) => {
+  const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!createUsername.trim()) return;
+    setCreateFieldError(null);
 
-    const newCode = generateRoomCode();
-    const newPin = generatePasscode();
-    createRoom(createUsername.trim(), newCode, newPin);
+    const sanitizedName = createUsername.trim();
+    if (!sanitizedName) {
+      setCreateFieldError("Nama panggilan tidak boleh kosong.");
+      return;
+    }
+    if (sanitizedName.length < 2) {
+      setCreateFieldError("Nama panggilan minimal 2 karakter.");
+      return;
+    }
 
-    setCreatedRoomInfo({ code: newCode, pin: newPin });
-    setSavedRooms(listSavedRooms());
+    try {
+      setIsCreating(true);
+      const result = await createRoomAsync(sanitizedName);
+      setCreatedRoomInfo({ code: result.code, pin: result.passcode });
+      setSavedRooms(listSavedRooms());
+
+      if (result.cloudSynced) {
+        toast.success(`Ruang ${result.code} berhasil dibuat!`, {
+          description: "Data sesi tersimpan di Cloud Supabase & penyimpanan lokal.",
+        });
+      } else {
+        toast.success(`Ruang ${result.code} berhasil dibuat!`, {
+          description: "Data sesi tersimpan di penyimpanan lokal perangkat.",
+        });
+      }
+    } catch (err: unknown) {
+      console.error("Gagal membuat ruang:", err);
+      toast.error("Terjadi kendala saat membuat ruang. Mencoba penyimpanan lokal.");
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   const handleInviteWhatsApp = () => {
@@ -154,37 +195,71 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
     window.open(`https://wa.me/?text=${text}`, "_blank");
   };
 
-  const handleJoinRoom = (e: React.FormEvent) => {
+  const handleJoinRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     setJoinError(null);
+    setJoinFieldErrors({});
 
     const code = joinRoomCode.trim().toUpperCase();
     const username = joinUsername.trim();
     const pin = joinPin.trim();
 
-    if (!code || !username || !pin) {
-      setJoinError("Mohon lengkapi nama panggilan, kode ruang, dan 4-digit PIN.");
+    const errors: { username?: string; code?: string; pin?: string } = {};
+
+    if (!username) {
+      errors.username = "Nama panggilan wajib diisi.";
+    } else if (username.length < 2) {
+      errors.username = "Nama panggilan minimal 2 karakter.";
+    }
+
+    if (!code) {
+      errors.code = "Kode ruang wajib diisi.";
+    } else if (!code.startsWith("VWS-") || code.length < 5) {
+      errors.code = "Format kode ruang harus VWS-XXX (contoh: VWS-482).";
+    }
+
+    if (!pin) {
+      errors.pin = "4-digit PIN wajib diisi.";
+    } else if (pin.length < 4) {
+      errors.pin = "PIN harus terdiri dari minimal 4 digit.";
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setJoinFieldErrors(errors);
       return;
     }
 
-    const result = joinRoom(code, username, pin);
+    try {
+      setIsJoining(true);
+      const result = await joinRoomAsync(code, username, pin);
 
-    if (result.success) {
-      onSuccess(code);
-    } else {
-      if (result.error === "NOT_FOUND") {
-        setJoinError(
-          "Ruang tidak ditemukan di perangkat ini. Pastikan kode ruang benar atau buat ruang baru terlebih dahulu."
-        );
-      } else if (result.error === "WRONG_PIN") {
-        setJoinError(
-          "PIN tidak sesuai. Mintalah 4-digit PIN rahasia kepada pasangan yang membuat ruang."
-        );
-      } else if (result.error === "ROOM_FULL") {
-        setJoinError(
-          "Ruang ini sudah terisi penuh oleh 2 pasangan dan terkunci."
-        );
+      if (result.success) {
+        toast.success(`Berhasil bergabung ke Ruang ${code}!`, {
+          description: `Selamat datang, ${username}. Membuka sesi Anda...`,
+        });
+        onSuccess(code);
+      } else {
+        if (result.error === "NOT_FOUND") {
+          const msg = "Ruang tidak ditemukan di Supabase maupun lokal. Pastikan kode ruang benar atau buat ruang baru.";
+          setJoinError(msg);
+          toast.error(msg);
+        } else if (result.error === "WRONG_PIN") {
+          const msg = "PIN rahasia tidak sesuai. Mintalah 4-digit PIN kepada pasangan Anda.";
+          setJoinError(msg);
+          toast.error(msg);
+        } else if (result.error === "ROOM_FULL") {
+          const msg = "Ruang ini sudah terisi penuh oleh 2 pasangan dan terkunci.";
+          setJoinError(msg);
+          toast.error(msg);
+        }
       }
+    } catch (err: unknown) {
+      console.error("Gagal verifikasi bergabung:", err);
+      const fallbackMsg = "Terjadi gangguan koneksi saat verifikasi ruang.";
+      setJoinError(fallbackMsg);
+      toast.error(fallbackMsg);
+    } finally {
+      setIsJoining(false);
     }
   };
 
@@ -212,6 +287,15 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
   const moduleScenarios = SCENARIOS.filter(
     (s) => (s.moduleId || 1) === selectedModuleId
   );
+  const filteredScenarios = moduleScenarios.filter((s) => {
+    if (!searchKeyword.trim()) return true;
+    const kw = searchKeyword.toLowerCase();
+    return (
+      (s.title || "").toLowerCase().includes(kw) ||
+      (s.description || "").toLowerCase().includes(kw) ||
+      (s.categoryLabel || "").toLowerCase().includes(kw)
+    );
+  });
   const activeModuleMeta =
     MODULE_META.find((m) => m.id === selectedModuleId) || MODULE_META[0];
 
@@ -683,14 +767,22 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
                 <div className="bg-[#FFFFFF] rounded-xl p-6 sm:p-8 border border-[#CBD5E1] shadow-xs">
                   <div className="flex items-center justify-between mb-5">
                     <div>
-                      <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-[#0F766E] block">
-                        TERMINAL RUANG PRIVAT
-                      </span>
-                      <h2 className="text-lg font-bold text-[#1E293B]">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-[#0F766E] block">
+                          TERMINAL RUANG PRIVAT
+                        </span>
+                        {isSupabaseConfigured && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-[#ECFDF5] text-[#065F46] border border-[#A7F3D0]">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] animate-pulse"></span>
+                            <span>Supabase Cloud Sync</span>
+                          </span>
+                        )}
+                      </div>
+                      <h2 className="text-lg font-bold text-[#1E293B] mt-0.5">
                         Mulai atau Gabung Sesi Pasangan
                       </h2>
                     </div>
-                    <Lock className="w-5 h-5 text-[#0F766E]" />
+                    <Lock className="w-5 h-5 text-[#0F766E] shrink-0" />
                   </div>
 
                   {/* Tab Switcher */}
@@ -746,13 +838,20 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
                               id="create-username"
                               type="text"
                               value={createUsername}
-                              onChange={(e) =>
-                                setCreateUsername(e.target.value)
-                              }
+                              onChange={(e) => {
+                                setCreateUsername(e.target.value);
+                                if (createFieldError) setCreateFieldError(null);
+                              }}
                               className="w-full min-h-[44px] px-4 py-2.5 rounded-lg border border-[#CBD5E1] bg-[#FFFFFF] focus:border-[#0F766E] text-[#1E293B] font-medium text-sm"
                               placeholder="Contoh: Bima"
                               required
                             />
+                            {createFieldError && (
+                              <p role="alert" className="text-xs font-semibold text-[#DC2626] mt-1.5 flex items-center gap-1">
+                                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                <span>{createFieldError}</span>
+                              </p>
+                            )}
                             <p className="text-xs text-[#475569] mt-1.5 leading-relaxed">
                               Nama ini dicantumkan pada lembar perbandingan
                               jawaban dan dokumen Piagam Kesepakatan.
@@ -761,10 +860,17 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
 
                           <button
                             type="submit"
-                            disabled={!createUsername.trim()}
-                            className="w-full min-h-[48px] mt-2 py-3 px-5 bg-[#0F766E] hover:bg-[#115E59] disabled:opacity-50 text-[#FFFFFF] font-bold rounded-lg transition-colors text-sm cursor-pointer"
+                            disabled={isCreating || !createUsername.trim()}
+                            className="w-full min-h-[48px] mt-2 py-3 px-5 bg-[#0F766E] hover:bg-[#115E59] disabled:opacity-50 text-[#FFFFFF] font-bold rounded-lg transition-colors text-sm cursor-pointer flex items-center justify-center gap-2"
                           >
-                            Buat Kode Ruang &amp; 4-Digit PIN
+                            {isCreating ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                                <span>Menyimpan ke Supabase &amp; Mengunci PIN...</span>
+                              </>
+                            ) : (
+                              <span>Buat Kode Ruang &amp; 4-Digit PIN</span>
+                            )}
                           </button>
                         </form>
                       ) : (
@@ -837,11 +943,22 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
                           id="join-username"
                           type="text"
                           value={joinUsername}
-                          onChange={(e) => setJoinUsername(e.target.value)}
+                          onChange={(e) => {
+                            setJoinUsername(e.target.value);
+                            if (joinFieldErrors.username) {
+                              setJoinFieldErrors((prev) => ({ ...prev, username: undefined }));
+                            }
+                          }}
                           className="w-full min-h-[44px] px-4 py-2.5 rounded-lg border border-[#CBD5E1] bg-[#FFFFFF] focus:border-[#0F766E] text-[#1E293B] font-medium text-sm"
                           placeholder="Contoh: Nadia"
                           required
                         />
+                        {joinFieldErrors.username && (
+                          <p role="alert" className="text-xs font-semibold text-[#DC2626] mt-1.5 flex items-center gap-1">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                            <span>{joinFieldErrors.username}</span>
+                          </p>
+                        )}
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -856,11 +973,22 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
                             id="join-room-code"
                             type="text"
                             value={joinRoomCode}
-                            onChange={(e) => setJoinRoomCode(e.target.value)}
+                            onChange={(e) => {
+                              setJoinRoomCode(e.target.value);
+                              if (joinFieldErrors.code) {
+                                setJoinFieldErrors((prev) => ({ ...prev, code: undefined }));
+                              }
+                            }}
                             className="w-full min-h-[44px] px-3 py-2.5 rounded-lg border border-[#CBD5E1] bg-[#FFFFFF] font-mono tracking-wider text-[#1E293B] font-bold text-center text-sm uppercase focus:border-[#0F766E]"
                             placeholder="VWS-XXX"
                             required
                           />
+                          {joinFieldErrors.code && (
+                            <p role="alert" className="text-xs font-semibold text-[#DC2626] mt-1.5 flex items-center gap-1">
+                              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                              <span>{joinFieldErrors.code}</span>
+                            </p>
+                          )}
                         </div>
 
                         <div>
@@ -876,13 +1004,24 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
                               type="password"
                               maxLength={6}
                               value={joinPin}
-                              onChange={(e) => setJoinPin(e.target.value)}
+                              onChange={(e) => {
+                                setJoinPin(e.target.value);
+                                if (joinFieldErrors.pin) {
+                                  setJoinFieldErrors((prev) => ({ ...prev, pin: undefined }));
+                                }
+                              }}
                               className="w-full min-h-[44px] px-3 py-2.5 rounded-lg border border-[#CBD5E1] bg-[#FFFFFF] font-mono tracking-widest text-[#1E293B] font-bold text-center text-sm focus:border-[#0F766E]"
                               placeholder="••••"
                               required
                             />
                             <KeyRound className="w-4 h-4 text-[#475569] absolute right-3 top-3 pointer-events-none" />
                           </div>
+                          {joinFieldErrors.pin && (
+                            <p role="alert" className="text-xs font-semibold text-[#DC2626] mt-1.5 flex items-center gap-1">
+                              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                              <span>{joinFieldErrors.pin}</span>
+                            </p>
+                          )}
                         </div>
                       </div>
 
@@ -898,9 +1037,17 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
 
                       <button
                         type="submit"
-                        className="w-full min-h-[48px] mt-2 py-3 px-6 bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] font-bold rounded-lg transition-colors text-sm cursor-pointer"
+                        disabled={isJoining}
+                        className="w-full min-h-[48px] mt-2 py-3 px-6 bg-[#0F766E] hover:bg-[#115E59] disabled:opacity-50 text-[#FFFFFF] font-bold rounded-lg transition-colors text-sm cursor-pointer flex items-center justify-center gap-2"
                       >
-                        Verifikasi PIN &amp; Masuk Ruang
+                        {isJoining ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                            <span>Memverifikasi PIN ke Supabase...</span>
+                          </>
+                        ) : (
+                          <span>Verifikasi PIN &amp; Masuk Ruang</span>
+                        )}
                       </button>
                     </form>
                   )}
@@ -1384,45 +1531,92 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {moduleScenarios.map((scen, idx) => (
-                  <div
-                    key={scen.id}
-                    className="p-4 rounded-xl border border-[#E2E8F0] bg-[#F8FAF7] flex flex-col justify-between gap-3"
-                  >
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-mono text-xs font-bold text-[#0F766E]">
-                          SKENARIO #{idx + 1}
-                        </span>
-                        <span className="text-[11px] font-semibold text-[#475569] bg-[#FFFFFF] px-2 py-0.5 rounded border border-[#E2E8F0]">
-                          {scen.categoryLabel}
-                        </span>
-                      </div>
-                      <h4 className="text-sm font-bold text-[#1E293B]">
-                        {scen.title}
-                      </h4>
-                      <p className="text-xs text-[#475569] leading-relaxed">
-                        {scen.description}
-                      </p>
-                    </div>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                <div className="relative flex-1 max-w-md">
+                  <input
+                    type="text"
+                    value={searchKeyword}
+                    onChange={(e) => setSearchKeyword(e.target.value)}
+                    placeholder="Cari skenario (misal: mertua, cicilan, anak)..."
+                    className="w-full min-h-[40px] pl-9 pr-8 py-2 rounded-lg border border-[#CBD5E1] bg-[#F8FAF7] focus:bg-[#FFFFFF] text-xs font-medium text-[#1E293B] focus:border-[#0F766E]"
+                  />
+                  <Search className="w-4 h-4 text-[#475569] absolute left-3 top-2.5 pointer-events-none" />
+                  {searchKeyword && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchKeyword("")}
+                      className="absolute right-2.5 top-2.5 text-[#475569] hover:text-[#1E293B] cursor-pointer"
+                      title="Hapus pencarian"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                <div className="text-xs text-[#475569]">
+                  Menampilkan <strong>{filteredScenarios.length}</strong> dari 10 skenario
+                </div>
+              </div>
 
-                    <div className="pt-2 border-t border-[#E2E8F0] flex items-center justify-between text-[11px] text-[#475569]">
-                      <span>3 Opsi Keputusan (A / B / C)</span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleLaunchDemo(
-                            `/room/VWS-DEMO/dilemma?module=${selectedModuleId}`
-                          )
-                        }
-                        className="font-bold text-[#0F766E] hover:underline cursor-pointer"
-                      >
-                        Jawab di Ruang Sesi
-                      </button>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {filteredScenarios.length === 0 ? (
+                  <div className="p-8 text-center bg-[#F8FAF7] border border-[#CBD5E1] rounded-xl space-y-3 col-span-full">
+                    <div className="w-12 h-12 rounded-full bg-[#E2E8F0] flex items-center justify-center mx-auto text-[#475569]">
+                      <Search className="w-5 h-5" />
                     </div>
+                    <h4 className="font-bold text-sm text-[#1E293B]">
+                      Yah, skenario tidak ditemukan dengan kata kunci &ldquo;{searchKeyword}&rdquo;
+                    </h4>
+                    <p className="text-xs text-[#475569] max-w-sm mx-auto">
+                      Coba gunakan kata kunci lain seperti &ldquo;uang&rdquo;, &ldquo;mertua&rdquo;, atau klik tombol reset di bawah ini.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setSearchKeyword("")}
+                      className="min-h-[40px] px-4 py-2 rounded-lg bg-[#0F766E] text-[#FFFFFF] text-xs font-bold hover:bg-[#115E59] transition-colors cursor-pointer"
+                    >
+                      Reset Pencarian
+                    </button>
                   </div>
-                ))}
+                ) : (
+                  filteredScenarios.map((scen, idx) => (
+                    <div
+                      key={scen.id}
+                      className="p-4 rounded-xl border border-[#E2E8F0] bg-[#F8FAF7] flex flex-col justify-between gap-3"
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono text-xs font-bold text-[#0F766E]">
+                            SKENARIO #{idx + 1}
+                          </span>
+                          <span className="text-[11px] font-semibold text-[#475569] bg-[#FFFFFF] px-2 py-0.5 rounded border border-[#E2E8F0]">
+                            {scen.categoryLabel}
+                          </span>
+                        </div>
+                        <h4 className="text-sm font-bold text-[#1E293B]">
+                          {scen.title}
+                        </h4>
+                        <p className="text-xs text-[#475569] leading-relaxed">
+                          {scen.description}
+                        </p>
+                      </div>
+
+                      <div className="pt-2 border-t border-[#E2E8F0] flex items-center justify-between text-[11px] text-[#475569]">
+                        <span>3 Opsi Keputusan (A / B / C)</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleLaunchDemo(
+                              `/room/VWS-DEMO/dilemma?module=${selectedModuleId}`
+                            )
+                          }
+                          className="font-bold text-[#0F766E] hover:underline cursor-pointer"
+                        >
+                          Jawab di Ruang Sesi
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>

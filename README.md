@@ -204,7 +204,8 @@ Meskipun kerangka kode dibantu oleh AI, sejumlah penyesuaian manual dilakukan un
 - **Bahasa Pemrograman:** TypeScript 5.0
 - **Styling:** Tailwind CSS 4.0
 - **Iconography:** Lucide React
-- **Penyimpanan Data:** Web Storage API (`localStorage` & `sessionStorage`)
+- **Toast Notifications:** Sonner
+- **Penyimpanan Data:** Supabase Cloud Database (PostgreSQL) + Fallback Web Storage API (`localStorage` & `sessionStorage`)
 - **Format Ekspor:** Native Browser Print Engine (CSS Paged Media `@media print`)
 
 ---

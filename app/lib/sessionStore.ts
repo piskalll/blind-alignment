@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { SCENARIOS } from "../data/scenarios";
+import { supabase, isSupabaseConfigured } from "./supabase";
 
 export type Role = "host" | "guest";
 export type OptionKey = "A" | "B" | "C";
@@ -264,6 +265,128 @@ export const joinRoom = (
   sessionStorage.setItem(ROLE_KEY, "guest");
   sessionStorage.setItem(CODE_KEY, normalizedCode);
   return { success: true, role: "guest" };
+};
+
+export interface CreateRoomAsyncResult {
+  code: string;
+  passcode: string;
+  cloudSynced: boolean;
+  message?: string;
+}
+
+export const createRoomAsync = async (
+  hostUsername: string,
+  code = generateRoomCode(),
+  passcode = generatePasscode()
+): Promise<CreateRoomAsyncResult> => {
+  const normalizedCode = code.toUpperCase();
+  const trimmedName = hostUsername.trim();
+
+  // 1. Always write locally first for instantaneous UX and offline reliability
+  createRoom(trimmedName, normalizedCode, passcode);
+
+  let cloudSynced = false;
+  let message = "";
+
+  // 2. Sync to Supabase if configured
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { error } = await supabase.from("rooms").insert({
+        code: normalizedCode,
+        passcode: passcode,
+        host_name: trimmedName,
+        guest_name: null,
+        status: "waiting",
+        completed_modules: [],
+      });
+
+      if (error) {
+        console.warn("Supabase insert warning:", error.message);
+        message = `Tersimpan secara lokal. (${error.message})`;
+      } else {
+        cloudSynced = true;
+        message = "Tersimpan di Cloud Supabase & Lokal.";
+      }
+    } catch (err: unknown) {
+      console.warn("Supabase network error:", err);
+      message = "Tersimpan secara lokal (koneksi Supabase offline).";
+    }
+  }
+
+  return { code: normalizedCode, passcode, cloudSynced, message };
+};
+
+export const joinRoomAsync = async (
+  code: string,
+  username: string,
+  inputPasscode: string
+): Promise<JoinResult & { cloudSynced?: boolean }> => {
+  const normalizedCode = code.trim().toUpperCase();
+  const trimmedUsername = username.trim();
+  const trimmedPasscode = inputPasscode.trim();
+
+  // 1. Check Supabase first if configured
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from("rooms")
+        .select("*")
+        .eq("code", normalizedCode)
+        .maybeSingle();
+
+      if (!error && data) {
+        if (data.passcode && data.passcode !== trimmedPasscode) {
+          return { success: false, error: "WRONG_PIN", cloudSynced: true };
+        }
+
+        // Check if room is full
+        if (
+          data.guest_name &&
+          data.guest_name !== trimmedUsername &&
+          data.host_name !== trimmedUsername
+        ) {
+          return { success: false, error: "ROOM_FULL", cloudSynced: true };
+        }
+
+        // If joining as guest
+        if (!data.guest_name && data.host_name !== trimmedUsername) {
+          await supabase
+            .from("rooms")
+            .update({ guest_name: trimmedUsername, status: "active" })
+            .eq("code", normalizedCode);
+        }
+
+        // Sync Supabase room to local storage
+        const currentLocal = readRoom(normalizedCode);
+        const syncedRoom: RoomState = {
+          code: normalizedCode,
+          passcode: data.passcode,
+          host: currentLocal?.host || emptyParticipant(data.host_name, true),
+          guest: {
+            ...(currentLocal?.guest || emptyParticipant(data.guest_name || trimmedUsername, true)),
+            name: data.guest_name || trimmedUsername,
+            isJoined: true,
+          },
+          compromises: currentLocal?.compromises || [],
+          completedModules: data.completed_modules || currentLocal?.completedModules || [],
+        };
+        writeRoom(syncedRoom);
+
+        const isHost = data.host_name === trimmedUsername;
+        const assignedRole: Role = isHost ? "host" : "guest";
+        sessionStorage.setItem(ROLE_KEY, assignedRole);
+        sessionStorage.setItem(CODE_KEY, normalizedCode);
+
+        return { success: true, role: assignedRole, cloudSynced: true };
+      }
+    } catch (err) {
+      console.warn("Supabase join fetch error, falling back to local:", err);
+    }
+  }
+
+  // 2. Fallback to local storage
+  const localResult = joinRoom(normalizedCode, trimmedUsername, trimmedPasscode);
+  return { ...localResult, cloudSynced: false };
 };
 
 export const useTheme = () => {
