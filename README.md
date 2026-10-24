@@ -213,3 +213,5 @@ Meskipun kerangka kode dibantu oleh AI, sejumlah penyesuaian manual dilakukan un
 ## Lisensi
 
 Proyek ini dilisensikan di bawah lisensi [MIT](LICENSE). Terbuka untuk dikembangkan lebih lanjut guna membantu pasangan membangun fondasi rumah tangga yang kokoh dan transparan.
+ 
+## Status Rilis Modul 8: Siap Usability Testing Modul 9 
