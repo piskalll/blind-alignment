@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SCENARIOS } from "../data/scenarios";
 import { supabase, isSupabaseConfigured } from "./supabase";
 
@@ -76,6 +76,257 @@ const writeRoom = (room: RoomState) => {
   window.dispatchEvent(new Event("vowsync:update"));
 };
 
+interface CloudStatePayload {
+  v: number;
+  host?: ParticipantState;
+  guest?: ParticipantState;
+  compromises?: CompromiseItem[];
+  completedModules?: number[];
+}
+
+const parseCloudPayload = (statusField: unknown): CloudStatePayload | null => {
+  if (typeof statusField !== "string" || !statusField.trim().startsWith("{")) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(statusField) as CloudStatePayload;
+    if (parsed && typeof parsed === "object" && parsed.v === 1) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+const mergeParticipant = (
+  primary: ParticipantState | undefined,
+  secondary: ParticipantState | undefined,
+  fallbackName: string,
+  forceJoined: boolean
+): ParticipantState => {
+  const base = primary || secondary || emptyParticipant(fallbackName, forceJoined);
+  const other = secondary || primary || emptyParticipant(fallbackName, forceJoined);
+
+  const mergedLockedModules = Array.from(
+    new Set([...(other.lockedModules || []), ...(base.lockedModules || [])])
+  );
+
+  return {
+    name: base.name || other.name || fallbackName,
+    isJoined: Boolean(
+      forceJoined || base.isJoined || other.isJoined || base.name || other.name
+    ),
+    locked: Boolean(
+      base.locked || other.locked || mergedLockedModules.length > 0
+    ),
+    lockedModules: mergedLockedModules,
+    answers: { ...(other.answers || {}), ...(base.answers || {}) },
+    signature: base.signature || other.signature,
+  };
+};
+
+const mergeCompromises = (
+  baseList: CompromiseItem[] = [],
+  overrideList: CompromiseItem[] = []
+): CompromiseItem[] => {
+  const map = new Map<number, CompromiseItem>();
+  for (const item of baseList) {
+    if (item && typeof item.scenarioId === "number") {
+      map.set(item.scenarioId, item);
+    }
+  }
+  for (const item of overrideList) {
+    if (item && typeof item.scenarioId === "number") {
+      map.set(item.scenarioId, item);
+    }
+  }
+  return Array.from(map.values());
+};
+
+const buildRoomFromCloudRow = (
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  row: Record<string, any>,
+  localRoom: RoomState | null,
+  preferLocalRole?: Role | "both"
+): RoomState => {
+  const payload = parseCloudPayload(row.status);
+  const hostName =
+    row.host_name || payload?.host?.name || localRoom?.host?.name || "Host";
+  const guestName =
+    row.guest_name || payload?.guest?.name || localRoom?.guest?.name || "";
+
+  const hostPrimary =
+    preferLocalRole === "host" || preferLocalRole === "both"
+      ? localRoom?.host
+      : payload?.host;
+  const hostSecondary =
+    preferLocalRole === "host" || preferLocalRole === "both"
+      ? payload?.host
+      : localRoom?.host;
+
+  const guestPrimary =
+    preferLocalRole === "guest" || preferLocalRole === "both"
+      ? localRoom?.guest
+      : payload?.guest;
+  const guestSecondary =
+    preferLocalRole === "guest" || preferLocalRole === "both"
+      ? payload?.guest
+      : localRoom?.guest;
+
+  const mergedHost = mergeParticipant(hostPrimary, hostSecondary, hostName, true);
+  const mergedGuest = mergeParticipant(
+    guestPrimary,
+    guestSecondary,
+    guestName,
+    Boolean(guestName)
+  );
+
+  const cloudCompleted = Array.isArray(row.completed_modules)
+    ? row.completed_modules
+    : [];
+  const payloadCompleted = Array.isArray(payload?.completedModules)
+    ? payload.completedModules
+    : [];
+  const localCompleted = Array.isArray(localRoom?.completedModules)
+    ? localRoom.completedModules
+    : [];
+
+  const mergedCompleted = Array.from(
+    new Set([...cloudCompleted, ...payloadCompleted, ...localCompleted])
+  );
+
+  const mergedCompromises = preferLocalRole
+    ? mergeCompromises(payload?.compromises, localRoom?.compromises)
+    : mergeCompromises(localRoom?.compromises, payload?.compromises);
+
+  return {
+    code: String(row.code || localRoom?.code || "").toUpperCase(),
+    passcode: String(row.passcode || localRoom?.passcode || "0000"),
+    host: mergedHost,
+    guest: mergedGuest,
+    compromises: mergedCompromises,
+    completedModules: mergedCompleted,
+  };
+};
+
+export const syncRoomToSupabase = async (
+  localRoom: RoomState,
+  activeRole: Role | "both"
+): Promise<RoomState> => {
+  const normalizedCode = localRoom.code.toUpperCase();
+  if (
+    !isSupabaseConfigured ||
+    !supabase ||
+    normalizedCode === "VWS-DEMO" ||
+    normalizedCode === "VWS-000"
+  ) {
+    return localRoom;
+  }
+
+  try {
+    const { data: existingRow } = await supabase
+      .from("rooms")
+      .select("*")
+      .eq("code", normalizedCode)
+      .maybeSingle();
+
+    const merged = existingRow
+      ? buildRoomFromCloudRow(existingRow, localRoom, activeRole)
+      : localRoom;
+
+    const payload: CloudStatePayload = {
+      v: 1,
+      host: merged.host,
+      guest: merged.guest,
+      compromises: merged.compromises || [],
+      completedModules: merged.completedModules || [],
+    };
+
+    if (existingRow) {
+      await supabase
+        .from("rooms")
+        .update({
+          host_name: merged.host.name || existingRow.host_name,
+          guest_name: merged.guest.name || existingRow.guest_name || null,
+          completed_modules: merged.completedModules || [],
+          status: JSON.stringify(payload),
+        })
+        .eq("code", normalizedCode);
+    } else {
+      await supabase.from("rooms").insert({
+        code: normalizedCode,
+        passcode: merged.passcode,
+        host_name: merged.host.name || "Host",
+        guest_name: merged.guest.name || null,
+        completed_modules: merged.completedModules || [],
+        status: JSON.stringify(payload),
+      });
+    }
+
+    writeRoom(merged);
+    return merged;
+  } catch (err) {
+    console.warn("Supabase sync warning:", err);
+    return localRoom;
+  }
+};
+
+export const pullRoomFromSupabase = async (
+  code: string
+): Promise<RoomState | null> => {
+  const normalizedCode = code.toUpperCase();
+  const localRoom = readRoom(normalizedCode);
+
+  if (
+    !isSupabaseConfigured ||
+    !supabase ||
+    !normalizedCode ||
+    normalizedCode === "VWS-DEMO" ||
+    normalizedCode === "VWS-000"
+  ) {
+    return localRoom;
+  }
+
+  try {
+    const { data: row, error } = await supabase
+      .from("rooms")
+      .select("*")
+      .eq("code", normalizedCode)
+      .maybeSingle();
+
+    if (error || !row) {
+      return localRoom;
+    }
+
+    const currentRole =
+      typeof window !== "undefined"
+        ? ((sessionStorage.getItem(ROLE_KEY) as Role) || undefined)
+        : undefined;
+
+    const payload = parseCloudPayload(row.status);
+    const merged = buildRoomFromCloudRow(row, localRoom, currentRole);
+
+    if (JSON.stringify(merged) !== JSON.stringify(localRoom)) {
+      writeRoom(merged);
+    }
+
+    // If this device has local answers/locks for currentRole not yet stored in cloud payload, push them up
+    if (
+      currentRole &&
+      localRoom &&
+      JSON.stringify(merged[currentRole]) !==
+        JSON.stringify(payload?.[currentRole])
+    ) {
+      await syncRoomToSupabase(merged, currentRole);
+    }
+
+    return merged;
+  } catch {
+    return localRoom;
+  }
+};
+
 export const listSavedRooms = (): RoomState[] => {
   if (typeof window === "undefined") return [];
   const rooms: RoomState[] = [];
@@ -101,14 +352,19 @@ export const deleteRoom = (code: string) => {
   window.dispatchEvent(new Event("vowsync:update"));
 };
 
-export const deleteRoomAsync = async (code: string): Promise<{ success: boolean; cloudDeleted: boolean }> => {
+export const deleteRoomAsync = async (
+  code: string
+): Promise<{ success: boolean; cloudDeleted: boolean }> => {
   const normalizedCode = code.toUpperCase();
   deleteRoom(normalizedCode);
 
   let cloudDeleted = false;
   if (isSupabaseConfigured && supabase) {
     try {
-      const { error } = await supabase.from("rooms").delete().eq("code", normalizedCode);
+      const { error } = await supabase
+        .from("rooms")
+        .delete()
+        .eq("code", normalizedCode);
       if (!error) {
         cloudDeleted = true;
       } else {
@@ -137,32 +393,21 @@ export const fetchRoomsFromSupabase = async (): Promise<RoomState[]> => {
       .limit(15);
 
     if (error || !data) {
-      console.warn("Supabase fetch rooms warning, falling back to local:", error?.message);
+      console.warn(
+        "Supabase fetch rooms warning, falling back to local:",
+        error?.message
+      );
       return localRooms;
     }
 
-    // Map Supabase rows to RoomState structure
     const cloudRooms: RoomState[] = data.map((row) => {
       const existingLocal = readRoom(row.code);
-      return {
-        code: row.code,
-        passcode: row.passcode || "0000",
-        host: existingLocal?.host || emptyParticipant(row.host_name || "Host", true),
-        guest: {
-          ...(existingLocal?.guest || emptyParticipant(row.guest_name || "", Boolean(row.guest_name))),
-          name: row.guest_name || existingLocal?.guest.name || "",
-          isJoined: Boolean(row.guest_name || existingLocal?.guest.isJoined),
-        },
-        compromises: existingLocal?.compromises || [],
-        completedModules: row.completed_modules || existingLocal?.completedModules || [],
-      };
+      return buildRoomFromCloudRow(row, existingLocal);
     });
 
-    // Merge cloud rooms with any demo or local-only rooms
     const mergedMap = new Map<string, RoomState>();
     for (const r of cloudRooms) {
       mergedMap.set(r.code, r);
-      // Cache to local storage
       writeRoom(r);
     }
     for (const r of localRooms) {
@@ -365,21 +610,28 @@ export const createRoomAsync = async (
   const normalizedCode = code.toUpperCase();
   const trimmedName = hostUsername.trim();
 
-  // 1. Always write locally first for instantaneous UX and offline reliability
   createRoom(trimmedName, normalizedCode, passcode);
+  const initialRoom = readRoom(normalizedCode);
 
   let cloudSynced = false;
   let message = "";
 
-  // 2. Sync to Supabase if configured
   if (isSupabaseConfigured && supabase) {
     try {
+      const payload: CloudStatePayload = {
+        v: 1,
+        host: initialRoom?.host || emptyParticipant(trimmedName, true),
+        guest: initialRoom?.guest || emptyParticipant("", false),
+        compromises: [],
+        completedModules: [],
+      };
+
       const { error } = await supabase.from("rooms").insert({
         code: normalizedCode,
         passcode: passcode,
         host_name: trimmedName,
         guest_name: null,
-        status: "waiting",
+        status: JSON.stringify(payload),
         completed_modules: [],
       });
 
@@ -408,7 +660,6 @@ export const joinRoomAsync = async (
   const trimmedUsername = username.trim();
   const trimmedPasscode = inputPasscode.trim();
 
-  // 1. Check Supabase first if configured
   if (isSupabaseConfigured && supabase) {
     try {
       const { data, error } = await supabase
@@ -422,7 +673,6 @@ export const joinRoomAsync = async (
           return { success: false, error: "WRONG_PIN", cloudSynced: true };
         }
 
-        // Check if room is full
         if (
           data.guest_name &&
           data.guest_name !== trimmedUsername &&
@@ -431,32 +681,38 @@ export const joinRoomAsync = async (
           return { success: false, error: "ROOM_FULL", cloudSynced: true };
         }
 
-        // If joining as guest
-        if (!data.guest_name && data.host_name !== trimmedUsername) {
-          await supabase
-            .from("rooms")
-            .update({ guest_name: trimmedUsername, status: "active" })
-            .eq("code", normalizedCode);
-        }
-
-        // Sync Supabase room to local storage
-        const currentLocal = readRoom(normalizedCode);
-        const syncedRoom: RoomState = {
-          code: normalizedCode,
-          passcode: data.passcode,
-          host: currentLocal?.host || emptyParticipant(data.host_name, true),
-          guest: {
-            ...(currentLocal?.guest || emptyParticipant(data.guest_name || trimmedUsername, true)),
-            name: data.guest_name || trimmedUsername,
-            isJoined: true,
-          },
-          compromises: currentLocal?.compromises || [],
-          completedModules: data.completed_modules || currentLocal?.completedModules || [],
-        };
-        writeRoom(syncedRoom);
-
         const isHost = data.host_name === trimmedUsername;
         const assignedRole: Role = isHost ? "host" : "guest";
+
+        const currentLocal = readRoom(normalizedCode);
+        const mergedRoom = buildRoomFromCloudRow(data, currentLocal);
+
+        if (!isHost) {
+          mergedRoom.guest = {
+            ...mergedRoom.guest,
+            name: data.guest_name || trimmedUsername,
+            isJoined: true,
+          };
+        }
+
+        const payload: CloudStatePayload = {
+          v: 1,
+          host: mergedRoom.host,
+          guest: mergedRoom.guest,
+          compromises: mergedRoom.compromises || [],
+          completedModules: mergedRoom.completedModules || [],
+        };
+
+        await supabase
+          .from("rooms")
+          .update({
+            guest_name: mergedRoom.guest.name || trimmedUsername,
+            status: JSON.stringify(payload),
+            completed_modules: mergedRoom.completedModules || [],
+          })
+          .eq("code", normalizedCode);
+
+        writeRoom(mergedRoom);
         sessionStorage.setItem(ROLE_KEY, assignedRole);
         sessionStorage.setItem(CODE_KEY, normalizedCode);
 
@@ -467,7 +723,6 @@ export const joinRoomAsync = async (
     }
   }
 
-  // 2. Fallback to local storage
   const localResult = joinRoom(normalizedCode, trimmedUsername, trimmedPasscode);
   return { ...localResult, cloudSynced: false };
 };
@@ -604,6 +859,7 @@ export const simulatePartnerLock = (
     },
   };
   writeRoom(next);
+  void syncRoomToSupabase(next, "both");
 };
 
 export const useRoom = (explicitCode?: string) => {
@@ -630,6 +886,8 @@ export const useRoom = (explicitCode?: string) => {
     if (typeof window === "undefined") return "host";
     return (sessionStorage.getItem(ROLE_KEY) as Role) || "host";
   });
+
+  const answerSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const me = role && room ? room[role] : null;
   const partnerRole: Role = role === "host" ? "guest" : "host";
@@ -663,6 +921,63 @@ export const useRoom = (explicitCode?: string) => {
     };
   }, [refresh]);
 
+  // Real-time cloud synchronization (Polling + Supabase Realtime channel)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const code = resolveActiveCode();
+    if (
+      !code ||
+      code === "VWS-DEMO" ||
+      code === "VWS-000" ||
+      !isSupabaseConfigured ||
+      !supabase
+    ) {
+      return;
+    }
+
+    // Initial pull on mount
+    void pullRoomFromSupabase(code);
+
+    // Poll every 2.5 seconds so partner progress and locks appear automatically across devices
+    const intervalId = setInterval(() => {
+      void pullRoomFromSupabase(code);
+    }, 2500);
+
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === "visible") {
+        void pullRoomFromSupabase(code);
+      }
+    };
+
+    window.addEventListener("focus", handleVisibilityOrFocus);
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+
+    // Also subscribe to Supabase Realtime postgres_changes if replication is enabled
+    const sb = supabase;
+    const channel = sb
+      .channel(`vowsync-room-${code}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "rooms",
+          filter: `code=eq.${code}`,
+        },
+        () => {
+          void pullRoomFromSupabase(code);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+      void sb.removeChannel(channel);
+    };
+  }, [resolveActiveCode]);
+
   const isUserLocked = (targetModuleId: number = 1) => {
     return (
       me?.lockedModules?.includes(targetModuleId) ||
@@ -685,24 +1000,58 @@ export const useRoom = (explicitCode?: string) => {
   const bothLocked = isBothLocked(1);
 
   const saveAnswer = (questionId: number, answer: Answer) => {
-    if (!room) return;
-    const next = { ...room };
-    next[role] = {
-      ...next[role],
-      answers: { ...next[role].answers, [questionId]: answer },
+    const code = resolveActiveCode();
+    const currentRoom = (code ? readRoom(code) : null) || room;
+    if (!currentRoom) return;
+    const currentRole = (sessionStorage.getItem(ROLE_KEY) as Role) || role;
+
+    const next: RoomState = {
+      ...currentRoom,
+      [currentRole]: {
+        ...currentRoom[currentRole],
+        answers: {
+          ...currentRoom[currentRole].answers,
+          [questionId]: answer,
+        },
+      },
     };
     writeRoom(next);
+
+    if (answerSyncTimerRef.current) {
+      clearTimeout(answerSyncTimerRef.current);
+    }
+    answerSyncTimerRef.current = setTimeout(() => {
+      const latestLocal = readRoom(next.code) || next;
+      void syncRoomToSupabase(latestLocal, currentRole);
+    }, 300);
   };
 
   const lockAnswers = (moduleId: number = 1) => {
-    if (!room) return;
-    const next = { ...room };
-    const currentLocked = next[role].lockedModules || [];
+    const code = resolveActiveCode();
+    const currentRoom = (code ? readRoom(code) : null) || room;
+    if (!currentRoom) return;
+    const currentRole = (sessionStorage.getItem(ROLE_KEY) as Role) || role;
+
+    if (answerSyncTimerRef.current) {
+      clearTimeout(answerSyncTimerRef.current);
+      answerSyncTimerRef.current = null;
+    }
+
+    const currentLocked = currentRoom[currentRole].lockedModules || [];
     const updatedLocked = currentLocked.includes(moduleId)
       ? currentLocked
       : [...currentLocked, moduleId];
-    next[role] = { ...next[role], locked: true, lockedModules: updatedLocked };
+
+    const next: RoomState = {
+      ...currentRoom,
+      [currentRole]: {
+        ...currentRoom[currentRole],
+        locked: true,
+        lockedModules: updatedLocked,
+      },
+    };
     writeRoom(next);
+    void syncRoomToSupabase(next, currentRole);
   };
 
   const saveSignature = (dataUrl: string) => {
@@ -711,32 +1060,41 @@ export const useRoom = (explicitCode?: string) => {
     const currentRoom = readRoom(code);
     if (!currentRoom) return;
     const currentRole = (sessionStorage.getItem(ROLE_KEY) as Role) || role;
-    const next = { ...currentRoom };
-    next[currentRole] = {
-      ...next[currentRole],
-      signature: dataUrl
-        ? {
-            dataUrl,
-            signedAt: new Date().toLocaleTimeString("id-ID", {
-              hour: "2-digit",
-              minute: "2-digit",
-              timeZoneName: "short",
-            }),
-          }
-        : undefined,
+    const next: RoomState = {
+      ...currentRoom,
+      [currentRole]: {
+        ...currentRoom[currentRole],
+        signature: dataUrl
+          ? {
+              dataUrl,
+              signedAt: new Date().toLocaleTimeString("id-ID", {
+                hour: "2-digit",
+                minute: "2-digit",
+                timeZoneName: "short",
+              }),
+            }
+          : undefined,
+      },
     };
     writeRoom(next);
+    void syncRoomToSupabase(next, currentRole);
   };
 
   const saveCompromise = (compromise: CompromiseItem) => {
-    if (!room) return;
-    const next = { ...room };
-    const current = next.compromises || [];
+    const code = resolveActiveCode();
+    const currentRoom = (code ? readRoom(code) : null) || room;
+    if (!currentRoom) return;
+    const currentRole = (sessionStorage.getItem(ROLE_KEY) as Role) || role;
+    const current = currentRoom.compromises || [];
     const filtered = current.filter(
       (c) => c.scenarioId !== compromise.scenarioId
     );
-    next.compromises = [...filtered, compromise];
+    const next: RoomState = {
+      ...currentRoom,
+      compromises: [...filtered, compromise],
+    };
     writeRoom(next);
+    void syncRoomToSupabase(next, currentRole);
   };
 
   const markModuleCompleted = (moduleId: number) => {
@@ -744,15 +1102,17 @@ export const useRoom = (explicitCode?: string) => {
     if (!code) return;
     const currentRoom = readRoom(code);
     if (!currentRoom) return;
+    const currentRole = (sessionStorage.getItem(ROLE_KEY) as Role) || role;
     const currentCompleted = currentRoom.completedModules || [];
     if (currentCompleted.includes(moduleId)) {
       return;
     }
-    const next = {
+    const next: RoomState = {
       ...currentRoom,
       completedModules: [...currentCompleted, moduleId],
     };
     writeRoom(next);
+    void syncRoomToSupabase(next, currentRole);
   };
 
   const isModuleUnlocked = (moduleId: number) => {
