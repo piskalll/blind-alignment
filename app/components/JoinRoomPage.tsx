@@ -26,6 +26,8 @@ import {
   Loader2,
   Cloud,
   Search,
+  Trash2,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -36,6 +38,8 @@ import {
   joinRoom,
   joinRoomAsync,
   listSavedRooms,
+  deleteRoomAsync,
+  fetchRoomsFromSupabase,
   activateRoomSession,
   createDemoRoom,
   useTheme,
@@ -43,6 +47,10 @@ import {
 } from "../lib/sessionStore";
 import { isSupabaseConfigured } from "../lib/supabase";
 import { SCENARIOS } from "../data/scenarios";
+import {
+  HeroAlignmentIllustration,
+  ModulePillarIllustration,
+} from "./VisualIllustrations";
 
 interface JoinRoomProps {
   onSuccess: (roomCode: string) => void;
@@ -53,52 +61,52 @@ const MODULE_META = [
     id: 1,
     code: "MOD-01",
     title: "Prinsip & Transparansi Finansial",
-    subtitle: "Rekening bersama, dana bantuan mertua, utang bawaan, dan dana darurat",
+    subtitle: "Rekening bersama, dana mertua & utang",
     summary:
-      "Menguji batas keterbukaan saldo, struktur rekening rumah tangga, batasan subsidi ke keluarga besar, serta kesiapan menghadapi krisis pendapatan.",
+      "Keterbukaan saldo, struktur kas rumah tangga, dan batas subsidi ke keluarga besar.",
   },
   {
     id: 2,
     code: "MOD-02",
-    title: "Mertua, Keluarga Besar & Batasan Privat",
-    subtitle: "Aturan tinggal bersama, kunjungan tanpa kabar, privasi konflik, dan hari raya",
+    title: "Mertua & Batasan Privat",
+    subtitle: "Aturan tinggal, kunjungan & privasi konflik",
     summary:
-      "Menetapkan garis batas antara bakti kepada orang tua dan kedaulatan rumah tangga baru agar intervensi pihak ketiga tidak merusak keputusan pasangan.",
+      "Garis batas antara bakti kepada orang tua dan kedaulatan rumah tangga baru.",
   },
   {
     id: 3,
     code: "MOD-03",
     title: "Visi Pengasuhan & Masa Depan Anak",
-    subtitle: "Waktu memiliki anak, pola pengasuhan saat bekerja, disiplin, dan jalur pendidikan",
+    subtitle: "Waktu punya anak, pengasuhan & pendidikan",
     summary:
-      "Menyelaraskan kesiapan mental dan finansial sebelum memiliki anak, peran pengasuhan kakek-nenek, hingga kompromi karier saat anak lahir.",
+      "Kesiapan finansial punya anak, peran kakek-nenek, dan kompromi karier saat anak lahir.",
   },
   {
     id: 4,
     code: "MOD-04",
-    title: "Pembagian Peran, Karier & Resolusi Konflik",
-    subtitle: "Beban kerja domestik, relokasi karier, waktu pribadi, dan protokol bertengkar",
+    title: "Pembagian Peran, Karier & Konflik",
+    subtitle: "Beban domestik, relokasi & etika bertengkar",
     summary:
-      "Menyusun kesepakatan operasional harian di rumah, batasan lembur, pengelolaan ekspektasi di media sosial, serta cara menyelesaikan pertengkaran.",
+      "Kesepakatan tugas harian di rumah, batasan lembur, dan protokol menyelesaikan konflik.",
   },
 ];
 
 const FAQ_ITEMS = [
   {
-    q: "Mengapa jawaban saya harus disegel sampai pasangan selesai?",
-    a: "Dalam diskusi tatap muka biasa, salah satu pihak sering mengalah atau menyesuaikan jawaban agar tidak memicu perdebatan (pleasing-bias). Dengan mekanisme Dual-Blind, Anda dan pasangan menjawab 10 skenario secara terpisah. Perbandingan baru dibuka serentak ketika kedua pihak sudah menekan tombol Kunci Jawaban.",
+    q: "Mengapa jawaban disegel sampai pasangan selesai?",
+    a: "Agar tidak ada pihak yang mengalah atau ikut-ikutan (pleasing-bias). Perbandingan baru terbuka serentak saat kedua pihak menekan Kunci Jawaban.",
   },
   {
-    q: "Bagaimana cara kerja perlindungan PIN dan batas 2 pengguna?",
-    a: "Saat membuat ruang sesi, sistem menerbitkan Kode Ruang (misalnya VWS-482) beserta 4-digit PIN rahasia. Hanya satu pasangan yang memegang PIN tersebut yang dapat bergabung sebagai Tamu. Setelah terisi 2 orang (Host dan Guest), ruang terkunci untuk pihak ketiga.",
+    q: "Bagaimana perlindungan PIN dan batas 2 pengguna bekerja?",
+    a: "Setiap ruang dilindungi Kode Ruang dan 4-digit PIN. Begitu Host dan Guest bergabung, akses ruang otomatis terkunci untuk pihak ketiga.",
   },
   {
-    q: "Mengapa Modul 2, 3, dan 4 terkunci pada awalnya?",
-    a: "Kurikulum VowSync dirancang berjenjang dari fondasi finansial menuju operasional rumah tangga. Modul berikutnya terbuka secara otomatis segera setelah Anda dan pasangan menyelesaikan modul aktif dan membubuhkan tanda tangan pada Piagam Kesepakatan modul tersebut.",
+    q: "Mengapa Modul 2, 3, dan 4 terkunci di awal?",
+    a: "Kurikulum disusun berjenjang. Modul berikutnya terbuka otomatis setelah Piagam Kesepakatan modul aktif ditandatangani berdua.",
   },
   {
-    q: "Di mana data jawaban dan tanda tangan saya disimpan?",
-    a: "Seluruh data sesi, pilihan skenario, rumusan kompromi, dan tanda tangan kanvas disimpan langsung pada penyimpanan lokal peramban (localStorage) perangkat Anda. Anda dapat mencetak atau menyimpan Piagam Kesepakatan sebagai dokumen PDF kapan saja.",
+    q: "Di mana data sesi dan tanda tangan disimpan?",
+    a: "Tersimpan di Cloud Supabase serta penyimpanan lokal peramban, dan dapat dicetak menjadi dokumen PDF Piagam Kesepakatan kapan saja.",
   },
 ];
 
@@ -127,15 +135,29 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
   }>({});
 
   const [savedRooms, setSavedRooms] = useState<RoomData[]>([]);
+  const [isLoadingRooms, setIsLoadingRooms] = useState(true);
+  const [deletingRoomCode, setDeletingRoomCode] = useState<string | null>(null);
   const [ledgerStep, setLedgerStep] = useState<1 | 2 | 3>(2);
   const [selectedModuleId, setSelectedModuleId] = useState<number>(1);
   const [searchKeyword, setSearchKeyword] = useState("");
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
+  const loadRooms = async () => {
+    setIsLoadingRooms(true);
+    try {
+      const rooms = await fetchRoomsFromSupabase();
+      setSavedRooms(rooms);
+    } catch {
+      setSavedRooms(listSavedRooms());
+    } finally {
+      setIsLoadingRooms(false);
+    }
+  };
+
   useEffect(() => {
     if (typeof window !== "undefined") {
-      setSavedRooms(listSavedRooms());
+      loadRooms();
       const urlParams = new URLSearchParams(window.location.search);
       const roomParam = urlParams.get("room");
       const pinParam = urlParams.get("pin");
@@ -148,6 +170,25 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
       }
     }
   }, []);
+
+  const handleDeleteRoom = async (code: string) => {
+    if (!window.confirm(`Yakin ingin menghapus sesi Ruang ${code}?`)) return;
+
+    try {
+      setDeletingRoomCode(code);
+      const result = await deleteRoomAsync(code);
+      setSavedRooms((prev) => prev.filter((r) => r.code !== code));
+      if (result.cloudDeleted) {
+        toast.success(`Ruang ${code} berhasil dihapus dari Cloud Supabase & lokal.`);
+      } else {
+        toast.success(`Ruang ${code} berhasil dihapus dari penyimpanan perangkat.`);
+      }
+    } catch {
+      toast.error(`Gagal menghapus sesi Ruang ${code}.`);
+    } finally {
+      setDeletingRoomCode(null);
+    }
+  };
 
   const handleCreateRoom = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -167,7 +208,7 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
       setIsCreating(true);
       const result = await createRoomAsync(sanitizedName);
       setCreatedRoomInfo({ code: result.code, pin: result.passcode });
-      setSavedRooms(listSavedRooms());
+      await loadRooms();
 
       if (result.cloudSynced) {
         toast.success(`Ruang ${result.code} berhasil dibuat!`, {
@@ -265,7 +306,7 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
 
   const handleLaunchDemo = (targetPath?: string) => {
     const demo = createDemoRoom();
-    setSavedRooms(listSavedRooms());
+    loadRooms();
     setMobileNavOpen(false);
     if (targetPath) {
       router.push(targetPath);
@@ -583,8 +624,8 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
         >
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-start">
-              {/* Left Column: Editorial Premise & Direct Demo Network */}
-              <div className="lg:col-span-7 space-y-6">
+              {/* Left Column: Editorial Premise & Visual Dual-Blind Illustration */}
+              <div className="lg:col-span-7 space-y-5">
                 <p className="font-mono text-xs font-bold uppercase tracking-widest text-[#0F766E]">
                   01 / MEKANISME DUAL-BLIND PRA-NIKAH
                 </p>
@@ -597,169 +638,13 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
                   sebelum hari akad.
                 </h1>
 
-                <p className="text-[#475569] text-base sm:text-lg max-w-2xl leading-relaxed">
-                  Banyak pasangan menunda pembicaraan sensitif seperti cicilan
-                  PayLater, jatah bulanan orang tua, atau aturan menginap di
-                  rumah mertua karena sungkan. Di VowSync, Anda dan pasangan
-                  menjawab 40 dilema nyata secara terpisah. Hasilnya baru
-                  terbuka serentak setelah kedua pihak mengunci jawaban.
+                <p className="text-[#475569] text-sm sm:text-base max-w-xl leading-relaxed">
+                  Jawab 40 dilema rumah tangga secara terpisah tanpa rasa sungkan.
+                  Perbandingan baru terbuka serentak setelah Anda dan pasangan
+                  mengunci jawaban.
                 </p>
 
-                {/* Architectural Specs Ledger */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 border border-[#CBD5E1] rounded-xl bg-[#FFFFFF] divide-y sm:divide-y-0 sm:divide-x divide-[#E2E8F0] overflow-hidden">
-                  <div className="p-4">
-                    <div className="font-mono text-xl font-bold text-[#1E293B] tabular-nums">
-                      4 Modul
-                    </div>
-                    <div className="text-xs text-[#475569] mt-0.5 font-medium">
-                      Kurikulum berjenjang terkunci
-                    </div>
-                  </div>
-                  <div className="p-4">
-                    <div className="font-mono text-xl font-bold text-[#1E293B] tabular-nums">
-                      40 Dilema
-                    </div>
-                    <div className="text-xs text-[#475569] mt-0.5 font-medium">
-                      Kasus rumah tangga Indonesia
-                    </div>
-                  </div>
-                  <div className="p-4">
-                    <div className="font-mono text-xl font-bold text-[#0F766E] tabular-nums">
-                      PIN 2-Pihak
-                    </div>
-                    <div className="text-xs text-[#475569] mt-0.5 font-medium">
-                      Kapasitas ketat 2 pasangan
-                    </div>
-                  </div>
-                  <div className="p-4">
-                    <div className="font-mono text-xl font-bold text-[#1E293B] tabular-nums">
-                      Piagam PDF
-                    </div>
-                    <div className="text-xs text-[#475569] mt-0.5 font-medium">
-                      Tanda tangan kanvas digital
-                    </div>
-                  </div>
-                </div>
-
-                {/* Direct Route Connector Hub (Connects Landing Page to Every Screen) */}
-                <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-xl p-5 space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#E2E8F0] pb-3">
-                    <div>
-                      <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-[#0F766E] block">
-                        JALUR EKSPLORASI LANGSUNG (RUANG DEMO: VWS-DEMO)
-                      </span>
-                      <h2 className="text-sm font-bold text-[#1E293B] mt-0.5">
-                        Uji coba seluruh halaman sesi dengan data simulasi Bima &amp; Nadia
-                      </h2>
-                    </div>
-                    <span className="font-mono text-xs font-semibold text-[#475569] bg-[#F1F5F9] px-2.5 py-1 rounded border border-[#E2E8F0] self-start sm:self-center">
-                      PIN: 2026
-                    </span>
-                  </div>
-
-                  <p className="text-xs text-[#475569] leading-relaxed">
-                    Ingin meninjau alur lengkap tanpa mengisi dari nol? Klik
-                    salah satu tahap di bawah ini untuk menyiapkan ruang
-                    simulasi <span className="font-mono font-bold text-[#1E293B]">VWS-DEMO</span>{" "}
-                    dan membuka halaman tersebut secara langsung:
-                  </p>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => handleLaunchDemo("/room/VWS-DEMO")}
-                      className="min-h-[44px] px-3 py-2.5 rounded-lg border border-[#CBD5E1] bg-[#F8FAF7] hover:bg-[#F0FDFA] hover:border-[#0F766E] text-left transition-colors cursor-pointer group"
-                    >
-                      <div className="flex items-center gap-2 text-xs font-bold text-[#1E293B] group-hover:text-[#0F766E]">
-                        <LayoutGrid className="w-4 h-4 text-[#0F766E] shrink-0" />
-                        <span>1. Dashboard Ruang</span>
-                      </div>
-                      <p className="text-[11px] text-[#475569] mt-0.5 pl-6">
-                        4 modul &amp; status kunci
-                      </p>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleLaunchDemo("/room/VWS-DEMO/intro?module=1")
-                      }
-                      className="min-h-[44px] px-3 py-2.5 rounded-lg border border-[#CBD5E1] bg-[#F8FAF7] hover:bg-[#F0FDFA] hover:border-[#0F766E] text-left transition-colors cursor-pointer group"
-                    >
-                      <div className="flex items-center gap-2 text-xs font-bold text-[#1E293B] group-hover:text-[#0F766E]">
-                        <BookOpen className="w-4 h-4 text-[#0F766E] shrink-0" />
-                        <span>2. Pengantar Modul</span>
-                      </div>
-                      <p className="text-[11px] text-[#475569] mt-0.5 pl-6">
-                        Panduan sebelum menjawab
-                      </p>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleLaunchDemo("/room/VWS-DEMO/dilemma?module=1")
-                      }
-                      className="min-h-[44px] px-3 py-2.5 rounded-lg border border-[#CBD5E1] bg-[#F8FAF7] hover:bg-[#F0FDFA] hover:border-[#0F766E] text-left transition-colors cursor-pointer group"
-                    >
-                      <div className="flex items-center gap-2 text-xs font-bold text-[#1E293B] group-hover:text-[#0F766E]">
-                        <SlidersHorizontal className="w-4 h-4 text-[#0F766E] shrink-0" />
-                        <span>3. Lembar 10 Skenario</span>
-                      </div>
-                      <p className="text-[11px] text-[#475569] mt-0.5 pl-6">
-                        Pilih opsi &amp; segel jawaban
-                      </p>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleLaunchDemo("/room/VWS-DEMO/waiting?module=1")
-                      }
-                      className="min-h-[44px] px-3 py-2.5 rounded-lg border border-[#CBD5E1] bg-[#F8FAF7] hover:bg-[#F0FDFA] hover:border-[#0F766E] text-left transition-colors cursor-pointer group"
-                    >
-                      <div className="flex items-center gap-2 text-xs font-bold text-[#1E293B] group-hover:text-[#0F766E]">
-                        <Clock className="w-4 h-4 text-[#0F766E] shrink-0" />
-                        <span>4. Ruang Tunggu Segel</span>
-                      </div>
-                      <p className="text-[11px] text-[#475569] mt-0.5 pl-6">
-                        Status kunci &amp; panduan diskusi
-                      </p>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleLaunchDemo("/room/VWS-DEMO/result?module=1")
-                      }
-                      className="min-h-[44px] px-3 py-2.5 rounded-lg border border-[#CBD5E1] bg-[#F8FAF7] hover:bg-[#F0FDFA] hover:border-[#0F766E] text-left transition-colors cursor-pointer group"
-                    >
-                      <div className="flex items-center gap-2 text-xs font-bold text-[#1E293B] group-hover:text-[#0F766E]">
-                        <Scale className="w-4 h-4 text-[#0F766E] shrink-0" />
-                        <span>5. Hasil &amp; Kompromi</span>
-                      </div>
-                      <p className="text-[11px] text-[#475569] mt-0.5 pl-6">
-                        Peta selaras vs perlu diskusi
-                      </p>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        handleLaunchDemo("/room/VWS-DEMO/charter?module=1")
-                      }
-                      className="min-h-[44px] px-3 py-2.5 rounded-lg border border-[#CBD5E1] bg-[#F8FAF7] hover:bg-[#F0FDFA] hover:border-[#0F766E] text-left transition-colors cursor-pointer group"
-                    >
-                      <div className="flex items-center gap-2 text-xs font-bold text-[#1E293B] group-hover:text-[#0F766E]">
-                        <FileSignature className="w-4 h-4 text-[#0F766E] shrink-0" />
-                        <span>6. Piagam &amp; Tanda Tangan</span>
-                      </div>
-                      <p className="text-[11px] text-[#475569] mt-0.5 pl-6">
-                        Kanvas tanda tangan &amp; cetak
-                      </p>
-                    </button>
-                  </div>
-                </div>
+                <HeroAlignmentIllustration onQuickJump={handleLaunchDemo} />
               </div>
 
               {/* Right Column: Room Creation / Join Terminal + Saved Rooms */}
@@ -1053,31 +938,69 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
                   )}
                 </div>
 
-                {/* Saved Rooms on This Device */}
+                {/* Saved Rooms on This Device & Cloud */}
                 <div className="bg-[#FFFFFF] rounded-xl p-5 border border-[#CBD5E1]">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <FolderOpen className="w-4 h-4 text-[#0F766E]" />
                       <h3 className="text-xs font-bold uppercase tracking-wider text-[#1E293B]">
-                        Sesi Tersimpan di Perangkat Ini ({savedRooms.length})
+                        Sesi Ruang Pasangan ({savedRooms.length})
                       </h3>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleLaunchDemo()}
-                      className="text-xs font-bold text-[#0F766E] hover:underline cursor-pointer"
-                    >
-                      + Muat Ruang Demo
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => loadRooms()}
+                        disabled={isLoadingRooms}
+                        className="p-1.5 rounded-md border border-[#CBD5E1] bg-[#FFFFFF] hover:bg-[#F1F5F9] text-[#475569] hover:text-[#0F766E] transition-colors cursor-pointer"
+                        title="Muat Ulang dari Database Supabase"
+                        aria-label="Muat Ulang dari Database Supabase"
+                      >
+                        <RefreshCw
+                          className={`w-3.5 h-3.5 ${
+                            isLoadingRooms ? "animate-spin text-[#0F766E]" : ""
+                          }`}
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleLaunchDemo()}
+                        className="text-xs font-bold text-[#0F766E] hover:underline cursor-pointer"
+                      >
+                        + Muat Ruang Demo
+                      </button>
+                    </div>
                   </div>
 
-                  {savedRooms.length === 0 ? (
+                  {isLoadingRooms ? (
+                    <div
+                      className="space-y-2.5 py-1"
+                      role="status"
+                      aria-label="Memuat data sesi dari database Supabase"
+                    >
+                      {[1, 2].map((i) => (
+                        <div
+                          key={i}
+                          className="p-3.5 rounded-lg border border-[#E2E8F0] bg-[#F8FAF7] space-y-2.5 animate-pulse"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="h-4 w-28 bg-[#CBD5E1] rounded"></div>
+                            <div className="h-4 w-24 bg-[#CBD5E1] rounded"></div>
+                          </div>
+                          <div className="h-3 w-40 bg-[#E2E8F0] rounded"></div>
+                          <div className="flex gap-2 pt-1">
+                            <div className="h-7 w-24 bg-[#E2E8F0] rounded"></div>
+                            <div className="h-7 w-20 bg-[#E2E8F0] rounded"></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : savedRooms.length === 0 ? (
                     <div className="p-4 rounded-lg bg-[#F8FAF7] border border-[#E2E8F0] text-xs text-[#475569] space-y-2">
                       <p>
-                        Belum ada sesi ruang yang tersimpan di peramban ini.
+                        Belum ada sesi ruang yang ditemukan di database atau peramban ini.
                         Anda dapat membuat ruang baru di atas atau memuat{" "}
-                        <strong>Ruang Simulasi VWS-DEMO</strong> untuk mencoba
-                        seluruh fitur.
+                        <strong>Ruang Simulasi VWS-DEMO</strong> untuk mencoba seluruh fitur.
                       </p>
                       <button
                         type="button"
@@ -1108,9 +1031,25 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
                                   {room.guest.name || "Menunggu Pasangan"}
                                 </span>
                               </div>
-                              <span className="font-mono text-[11px] font-semibold px-2 py-0.5 rounded bg-[#FFFFFF] border border-[#CBD5E1] text-[#475569]">
-                                PIN: {room.passcode} · {completedCount}/4 Modul
-                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono text-[11px] font-semibold px-2 py-0.5 rounded bg-[#FFFFFF] border border-[#CBD5E1] text-[#475569]">
+                                  PIN: {room.passcode} · {completedCount}/4 Modul
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteRoom(room.code)}
+                                  disabled={deletingRoomCode === room.code}
+                                  className="p-1 rounded text-[#94A3B8] hover:text-[#DC2626] hover:bg-[#FEE2E2] transition-colors cursor-pointer"
+                                  title={`Hapus Sesi ${room.code} dari Database`}
+                                  aria-label={`Hapus Sesi ${room.code} dari Database`}
+                                >
+                                  {deletingRoomCode === room.code ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#DC2626]" />
+                                  ) : (
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </div>
                             </div>
 
                             <div className="flex flex-wrap gap-1.5 pt-1">
@@ -1192,20 +1131,18 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
         >
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
             <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
-              <div className="space-y-2 max-w-2xl">
+              <div className="space-y-1.5 max-w-2xl">
                 <p className="font-mono text-xs font-bold uppercase tracking-widest text-[#0F766E]">
                   02 / SIMULASI MEKANISME SEGEL GANDA
                 </p>
                 <h2 className="text-2xl sm:text-3xl font-extrabold text-[#1E293B] tracking-tight">
-                  Bagaimana VowSync mencegah jawaban ikut-ikutan{" "}
+                  Cegah jawaban ikut-ikutan{" "}
                   <span className="font-serif italic font-normal text-[#0F766E]">
                     (pleasing-bias)
                   </span>
                 </h2>
-                <p className="text-sm sm:text-base text-[#475569] leading-relaxed">
-                  Klik tiga tahapan di bawah ini untuk melihat bagaimana satu
-                  dilema finansial diproses mulai dari pengisian tersegel hingga
-                  menjadi pasal kesepakatan di Piagam Pra-Nikah.
+                <p className="text-sm text-[#475569]">
+                  Klik tiga tahap berikut untuk melihat alur dari jawaban tersegel hingga menjadi pasal Piagam.
                 </p>
               </div>
 
@@ -1419,23 +1356,20 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
           className="border-b border-[#E2E8F0] py-12 sm:py-16 bg-[#F8FAF7]"
         >
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
-            <div className="space-y-2 max-w-3xl">
+            <div className="space-y-1.5 max-w-3xl">
               <p className="font-mono text-xs font-bold uppercase tracking-widest text-[#0F766E]">
                 03 / KURIKULUM 4 PILAR &amp; 40 SKENARIO NYATA
               </p>
               <h2 className="text-2xl sm:text-3xl font-extrabold text-[#1E293B] tracking-tight">
-                Telusuri seluruh daftar dilema yang akan Anda dan pasangan
-                diskusikan
+                Empat pilar utama diskusi pra-nikah
               </h2>
-              <p className="text-sm sm:text-base text-[#475569] leading-relaxed">
-                Pilih salah satu dari 4 modul di bawah ini untuk membaca 10
-                pertanyaan skenario beserta tiga opsi keputusannya, atau buka
-                modul tersebut langsung di ruang simulasi.
+              <p className="text-sm text-[#475569]">
+                Pilih modul untuk meninjau ilustrasi topik dan 10 dilema keputusannya.
               </p>
             </div>
 
-            {/* Module Selector Tabs */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* Module Selector Tabs with Visual Pillar Illustrations */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
               {MODULE_META.map((mod) => {
                 const isSelected = mod.id === selectedModuleId;
                 return (
@@ -1443,36 +1377,41 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
                     key={mod.id}
                     type="button"
                     onClick={() => setSelectedModuleId(mod.id)}
-                    className={`p-4 rounded-xl border text-left transition-colors cursor-pointer flex flex-col justify-between gap-2 ${
+                    className={`p-4 rounded-xl border text-left transition-colors cursor-pointer flex flex-col justify-between gap-3 ${
                       isSelected
                         ? "bg-[#1E293B] text-[#FFFFFF] border-[#1E293B]"
                         : "bg-[#FFFFFF] text-[#1E293B] border-[#CBD5E1] hover:border-[#0F766E]"
                     }`}
                   >
-                    <div className="flex items-center justify-between w-full">
-                      <span
-                        className={`font-mono text-xs font-bold uppercase ${
-                          isSelected ? "text-[#5EEAD4]" : "text-[#0F766E]"
-                        }`}
-                      >
-                        {mod.code}
-                      </span>
-                      <span
-                        className={`font-mono text-[11px] px-2 py-0.5 rounded ${
-                          isSelected
-                            ? "bg-[#334155] text-[#FFFFFF]"
-                            : "bg-[#F1F5F9] text-[#475569]"
-                        }`}
-                      >
-                        10 Skenario
-                      </span>
+                    <div className="w-full space-y-2.5">
+                      <div className="flex items-center justify-between w-full">
+                        <span
+                          className={`font-mono text-xs font-bold uppercase ${
+                            isSelected ? "text-[#5EEAD4]" : "text-[#0F766E]"
+                          }`}
+                        >
+                          {mod.code}
+                        </span>
+                        <span
+                          className={`font-mono text-[11px] px-2 py-0.5 rounded ${
+                            isSelected
+                              ? "bg-[#334155] text-[#FFFFFF]"
+                              : "bg-[#F1F5F9] text-[#475569]"
+                          }`}
+                        >
+                          10 Kasus
+                        </span>
+                      </div>
+
+                      <ModulePillarIllustration moduleId={mod.id} compact />
                     </div>
+
                     <div>
                       <div className="font-bold text-sm leading-snug">
                         {mod.title}
                       </div>
                       <p
-                        className={`text-xs mt-1 line-clamp-2 ${
+                        className={`text-xs mt-1 line-clamp-1 ${
                           isSelected ? "text-[#CBD5E1]" : "text-[#475569]"
                         }`}
                       >
@@ -1486,48 +1425,53 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
 
             {/* Active Module Detail & Scenario Cards */}
             <div className="bg-[#FFFFFF] rounded-xl border border-[#CBD5E1] p-5 sm:p-7 space-y-6">
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-[#E2E8F0]">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs font-bold uppercase text-[#0F766E]">
-                      {activeModuleMeta.code}
-                    </span>
-                    <span className="text-[#CBD5E1]">•</span>
-                    <span className="text-xs font-semibold text-[#475569]">
-                      10 Dilema Keputusan
-                    </span>
-                  </div>
-                  <h3 className="text-xl font-extrabold text-[#1E293B]">
-                    {activeModuleMeta.title}
-                  </h3>
-                  <p className="text-xs sm:text-sm text-[#475569] max-w-2xl">
-                    {activeModuleMeta.summary}
-                  </p>
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-center pb-5 border-b border-[#E2E8F0]">
+                <div className="lg:col-span-5">
+                  <ModulePillarIllustration moduleId={selectedModuleId} />
                 </div>
+                <div className="lg:col-span-7 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs font-bold uppercase text-[#0F766E]">
+                        {activeModuleMeta.code}
+                      </span>
+                      <span className="text-[#CBD5E1]">•</span>
+                      <span className="text-xs font-semibold text-[#475569]">
+                        10 Dilema Keputusan
+                      </span>
+                    </div>
+                    <h3 className="text-xl font-extrabold text-[#1E293B]">
+                      {activeModuleMeta.title}
+                    </h3>
+                    <p className="text-xs sm:text-sm text-[#475569] max-w-xl">
+                      {activeModuleMeta.summary}
+                    </p>
+                  </div>
 
-                <div className="flex flex-wrap gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleLaunchDemo(
-                        `/room/VWS-DEMO/intro?module=${selectedModuleId}`
-                      )
-                    }
-                    className="min-h-[44px] px-4 py-2 rounded-lg border border-[#CBD5E1] bg-[#F8FAF7] hover:bg-[#F1F5F9] text-xs font-bold text-[#1E293B] cursor-pointer"
-                  >
-                    Buka Pengantar Modul {selectedModuleId}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleLaunchDemo(
-                        `/room/VWS-DEMO/dilemma?module=${selectedModuleId}`
-                      )
-                    }
-                    className="min-h-[44px] px-4 py-2 rounded-lg bg-[#0F766E] hover:bg-[#115E59] text-xs font-bold text-[#FFFFFF] cursor-pointer"
-                  >
-                    Kerjakan 10 Skenario Modul {selectedModuleId}
-                  </button>
+                  <div className="flex flex-wrap gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleLaunchDemo(
+                          `/room/VWS-DEMO/intro?module=${selectedModuleId}`
+                        )
+                      }
+                      className="min-h-[40px] px-3.5 py-2 rounded-lg border border-[#CBD5E1] bg-[#F8FAF7] hover:bg-[#F1F5F9] text-xs font-bold text-[#1E293B] cursor-pointer"
+                    >
+                      Pengantar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleLaunchDemo(
+                          `/room/VWS-DEMO/dilemma?module=${selectedModuleId}`
+                        )
+                      }
+                      className="min-h-[40px] px-3.5 py-2 rounded-lg bg-[#0F766E] hover:bg-[#115E59] text-xs font-bold text-[#FFFFFF] cursor-pointer"
+                    >
+                      Mulai Modul {selectedModuleId}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1557,7 +1501,7 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                 {filteredScenarios.length === 0 ? (
                   <div className="p-8 text-center bg-[#F8FAF7] border border-[#CBD5E1] rounded-xl space-y-3 col-span-full">
                     <div className="w-12 h-12 rounded-full bg-[#E2E8F0] flex items-center justify-center mx-auto text-[#475569]">
@@ -1567,7 +1511,7 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
                       Yah, skenario tidak ditemukan dengan kata kunci &ldquo;{searchKeyword}&rdquo;
                     </h4>
                     <p className="text-xs text-[#475569] max-w-sm mx-auto">
-                      Coba gunakan kata kunci lain seperti &ldquo;uang&rdquo;, &ldquo;mertua&rdquo;, atau klik tombol reset di bawah ini.
+                      Coba kata kunci lain seperti &ldquo;uang&rdquo; atau &ldquo;mertua&rdquo;.
                     </p>
                     <button
                       type="button"
@@ -1581,12 +1525,12 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
                   filteredScenarios.map((scen, idx) => (
                     <div
                       key={scen.id}
-                      className="p-4 rounded-xl border border-[#E2E8F0] bg-[#F8FAF7] flex flex-col justify-between gap-3"
+                      className="p-4 rounded-xl border border-[#E2E8F0] bg-[#F8FAF7] flex flex-col justify-between gap-2.5"
                     >
-                      <div className="space-y-1.5">
+                      <div className="space-y-1">
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-mono text-xs font-bold text-[#0F766E]">
-                            SKENARIO #{idx + 1}
+                            #{idx + 1}
                           </span>
                           <span className="text-[11px] font-semibold text-[#475569] bg-[#FFFFFF] px-2 py-0.5 rounded border border-[#E2E8F0]">
                             {scen.categoryLabel}
@@ -1595,13 +1539,13 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
                         <h4 className="text-sm font-bold text-[#1E293B]">
                           {scen.title}
                         </h4>
-                        <p className="text-xs text-[#475569] leading-relaxed">
+                        <p className="text-xs text-[#475569] leading-relaxed line-clamp-2">
                           {scen.description}
                         </p>
                       </div>
 
                       <div className="pt-2 border-t border-[#E2E8F0] flex items-center justify-between text-[11px] text-[#475569]">
-                        <span>3 Opsi Keputusan (A / B / C)</span>
+                        <span>3 Opsi (A / B / C)</span>
                         <button
                           type="button"
                           onClick={() =>
@@ -1611,7 +1555,7 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
                           }
                           className="font-bold text-[#0F766E] hover:underline cursor-pointer"
                         >
-                          Jawab di Ruang Sesi
+                          Buka Skenario
                         </button>
                       </div>
                     </div>

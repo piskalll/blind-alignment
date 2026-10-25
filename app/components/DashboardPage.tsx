@@ -24,6 +24,7 @@ import {
   type Answer,
 } from "../lib/sessionStore";
 import { SCENARIOS, MODULES } from "../data/scenarios";
+import { ModulePillarIllustration } from "./VisualIllustrations";
 
 interface DashboardProps {
   onStartModule: (moduleId: number) => void;
@@ -147,14 +148,14 @@ export const DashboardPage: React.FC<DashboardProps> = ({
             <h1 className="text-2xl sm:text-4xl font-extrabold text-[#1E293B] tracking-tight">
               Dashboard Keselarasan, {myName || "Anda"}.
             </h1>
-            <p className="text-sm sm:text-base text-[#475569] max-w-2xl">
+            <p className="text-sm text-[#475569] max-w-xl">
               {allModulesCompleted
-                ? "Seluruh 4 pilar kurikulum pra-nikah telah diselesaikan dan disahkan dalam Piagam Kesepakatan."
+                ? "Seluruh 4 pilar kurikulum telah disahkan di Piagam."
                 : isActiveBothLocked
-                ? `Segel Modul ${activeModuleId} telah terbuka karena kedua pihak selesai menjawab. Tinjau peta keselarasan dan rumuskan kompromi.`
+                ? `Segel Modul ${activeModuleId} terbuka. Tinjau hasil dan kompromi.`
                 : isActiveUserLocked
-                ? `Jawaban Modul ${activeModuleId} Anda telah disegel. Menunggu ${partnerName} mengunci 10 skenario.`
-                : `Kerjakan 10 skenario pada Modul ${activeModuleId} secara jujur. Pilihan Anda disegel sampai ${partnerName} selesai menjawab.`}
+                ? `Jawaban Modul ${activeModuleId} tersegel. Menunggu ${partnerName}.`
+                : `Jawab 10 skenario Modul ${activeModuleId}. Pilihan disegel sampai ${partnerName} selesai.`}
             </p>
           </div>
 
@@ -463,11 +464,13 @@ export const DashboardPage: React.FC<DashboardProps> = ({
                       )}
                     </div>
 
+                    <ModulePillarIllustration moduleId={mod.id} compact />
+
                     <div>
                       <h3 className="text-lg font-bold text-[#1E293B]">
                         {mod.title}
                       </h3>
-                      <p className="text-xs sm:text-sm text-[#475569] mt-1 leading-relaxed">
+                      <p className="text-xs text-[#475569] mt-1 line-clamp-2">
                         {mod.subtitle}
                       </p>
                     </div>
