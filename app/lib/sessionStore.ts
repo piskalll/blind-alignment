@@ -952,29 +952,43 @@ export const useRoom = (explicitCode?: string) => {
     window.addEventListener("focus", handleVisibilityOrFocus);
     document.addEventListener("visibilitychange", handleVisibilityOrFocus);
 
-    // Also subscribe to Supabase Realtime postgres_changes if replication is enabled
+    // Also subscribe to Supabase Realtime postgres_changes with unique topic to avoid collision
     const sb = supabase;
-    const channel = sb
-      .channel(`vowsync-room-${code}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "rooms",
-          filter: `code=eq.${code}`,
-        },
-        () => {
-          void pullRoomFromSupabase(code);
-        }
-      )
-      .subscribe();
+    const channelTopic = `vowsync-${code}-${Math.random().toString(36).slice(2, 8)}`;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let channel: any = null;
+
+    try {
+      channel = sb
+        .channel(channelTopic)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "rooms",
+            filter: `code=eq.${code}`,
+          },
+          () => {
+            void pullRoomFromSupabase(code);
+          }
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn("Supabase Realtime subscription caught error:", err);
+    }
 
     return () => {
       clearInterval(intervalId);
       window.removeEventListener("focus", handleVisibilityOrFocus);
       document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
-      void sb.removeChannel(channel);
+      if (channel) {
+        try {
+          void sb.removeChannel(channel);
+        } catch {
+          // Ignore removal error
+        }
+      }
     };
   }, [resolveActiveCode]);
 
