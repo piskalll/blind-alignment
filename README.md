@@ -13,12 +13,14 @@
 1. [Latar Belakang & Masalah](#latar-belakang--masalah)
 2. [Solusi: Mekanisme Dual-Blind](#solusi-mekanisme-dual-blind)
 3. [Tautan Proyek](#tautan-proyek)
-4. [Fitur Utama](#fitur-utama)
-5. [Kurikulum 4 Pilar (40 Skenario Nyata)](#kurikulum-4-pilar-40-skenario-nyata)
-6. [Struktur Folder Proyek](#struktur-folder-proyek)
-7. [Panduan Instalasi & Menjalankan di Lokal](#panduan-instalasi--menjalankan-di-lokal)
-8. [Log Prompt AI & Catatan Perbaikan Manual](#log-prompt-ai--catatan-perbaikan-manual)
-9. [Spesifikasi Teknis](#spesifikasi-teknis)
+4. [Dokumentasi Upgrade Modul 8 (Data Dinamis, Form, CRUD & UX States)](#dokumentasi-upgrade-modul-8-data-dinamis-form-crud--ux-states)
+5. [Panduan Uji Coba Fitur untuk Mentor (Modul 8)](#panduan-uji-coba-fitur-untuk-mentor-modul-8)
+6. [Fitur Utama](#fitur-utama)
+7. [Kurikulum 4 Pilar (40 Skenario Nyata)](#kurikulum-4-pilar-40-skenario-nyata)
+8. [Struktur Folder Proyek](#struktur-folder-proyek)
+9. [Panduan Instalasi & Menjalankan di Lokal](#panduan-instalasi--menjalankan-di-lokal)
+10. [Log Prompt AI & Catatan Perbaikan Manual](#log-prompt-ai--catatan-perbaikan-manual)
+11. [Spesifikasi Teknis](#spesifikasi-teknis)
 
 ---
 
@@ -51,8 +53,69 @@ Diskusi tatap muka langsung sering kali terdistorsi oleh ***pleasing-bias***, di
 | Keterangan Berkas / Layanan | Tautan |
 | :--- | :--- |
 | **Repositori GitHub Publik** | `https://github.com/piskalll/blind-alignment` |
-| **Live Web Deployment (Vercel)** | `nyusul` |
+| **Branch Pengembangan Modul 8** | `modul-8` (Digabungkan ke `main` melalui Pull Request) |
+| **Live Web Deployment (Vercel)** | *(Isi dengan URL Vercel Anda, contoh: `https://blind-alignment.vercel.app`)* |
 | **Desain UI/UX (Figma)** | `https://www.figma.com/design/0GToZAzRJGdamea001EyYX/Untitled?node-id=28-219&t=IwgDTyoCMfj2XUij-1` |
+
+---
+
+## Dokumentasi Upgrade Modul 8 (Data Dinamis, Form, CRUD & UX States)
+
+Pada Modul 8, aplikasi **VowSync (SalingPaham)** ditingkatkan dari prototipe tampilan menjadi aplikasi web dua arah (*Two-Way Web Application*) yang terhubung dengan database cloud dan memiliki siklus CRUD penuh:
+
+### 1. Sumber Data Dinamis & Operasi CRUD (`Supabase PostgreSQL` + `scenarios.ts`)
+- **Sumber Data Sesi Pasangan (Cloud Database CRUD):** Menggunakan **Supabase (PostgreSQL)** pada tabel `public.rooms` yang diakses melalui `@supabase/supabase-js` di [`app/lib/supabase.ts`](app/lib/supabase.ts) dan [`app/lib/sessionStore.ts`](app/lib/sessionStore.ts), dilengkapi *fallback* otomatis ke `localStorage` jika jaringan terputus:
+  - **Create (`INSERT`):** Fungsi `createRoomAsync()` menyimpan ruang baru (Kode Ruang `VWS-XXX`, 4-digit PIN, dan objek data Host) langsung ke tabel `rooms` di Supabase.
+  - **Read (`SELECT`):** Fungsi `fetchRoomsFromSupabase()` menarik daftar sesi ruang terbaru dari database Supabase saat halaman utama dimuat maupun saat tombol *Refresh* diklik.
+  - **Update (`UPDATE`):** Fungsi `joinRoomAsync()` memverifikasi PIN terhadap data di Supabase dan memperbarui kolom `guest` saat pasangan bergabung.
+  - **Delete (`DELETE`):** Fungsi `deleteRoomAsync()` menghapus sesi ruang dari tabel `rooms` Supabase sekaligus membersihkan penyimpanan lokal.
+- **Sumber Data Kurikulum & Looping Dinamis (`.map()`):** Seluruh 40 kartu skenario pra-nikah dan 4 tab modul dirender secara dinamis menggunakan `.map()` dari struktur data terpusat di [`app/data/scenarios.ts`](app/data/scenarios.ts) tanpa duplikasi kode manual (*hardcode*).
+- **Fitur Search & Filter Kategori Real-Time:** Dilengkapi bilah pencarian kata kunci (`searchKeyword`) dan filter kategori 4 pilar modul (`MOD-01` s.d. `MOD-04`) yang menyaring daftar skenario secara instan di layar.
+
+### 2. Layanan Formulir Interaktif, Validasi & Sanitasi Input
+Terdapat **3 alur formulir interaktif utama** yang terhubung langsung ke state dan database Supabase:
+1. **Form Buat Ruang Sesi Baru (`handleCreateRoom` di [`app/components/JoinRoomPage.tsx`](app/components/JoinRoomPage.tsx)):**
+   - Sanitasi input menggunakan `.trim()`.
+   - Validasi mencegah input kosong dan mewajibkan minimal 2 karakter, dengan pesan error *inline* tepat di bawah kolom input.
+2. **Form Gabung Ruang Pasangan (`handleJoinRoom` di [`app/components/JoinRoomPage.tsx`](app/components/JoinRoomPage.tsx)):**
+   - Validasi berlapis per kolom: Nama Panggilan (wajib & minimal 2 karakter), Kode Ruang (wajib berformat `VWS-XXX`), dan PIN Rahasia (wajib minimal 4 digit).
+   - Validasi asinkron ke Supabase untuk mengecek apakah ruang ditemukan (`NOT_FOUND`), PIN sesuai (`WRONG_PIN`), atau kapasitas 2 pasangan sudah penuh (`ROOM_FULL`).
+3. **Form Rumusan Kompromi Pasangan (`saveCompromise` di [`app/components/AlignmentResultPage.tsx`](app/components/AlignmentResultPage.tsx)):**
+   - Memungkinkan pasangan memilih templat jalan tengah atau menulis klausul kompromi kustom yang langsung dimasukkan ke dokumen Piagam Kesepakatan.
+
+### 3. Kelengkapan UX States (Loading Skeleton, Empty State, Error State & Toast)
+- **Loading State (Skeleton & Spinner):**
+  - *Skeleton Loading* berdenyut (`animate-pulse`) pada panel **Sesi Ruang Pasangan** saat menarik data dari Supabase (`isLoadingRooms`).
+  - Tombol submit formulir otomatis terkunci (`disabled`) dengan ikon *spinner* berputar (`Menyimpan ke Supabase & Mengunci PIN...` / `Memverifikasi PIN ke Supabase...`) saat proses pengiriman berlangsung.
+- **Empty State (Saat Hasil Pencarian / Data Kosong):**
+  - Jika kata kunci pencarian skenario tidak ditemukan, tampil kartu *Empty State* informatif: *"Yah, skenario tidak ditemukan dengan kata kunci '...'"* beserta tombol **Reset Pencarian**.
+  - Jika daftar ruang kosong, tampil kartu *Empty State* dengan tombol pintasan **Aktifkan Ruang Simulasi VWS-DEMO**.
+- **Error State (Penanganan Gagal Koneksi / Input Salah):**
+  - Seluruh panggilan API Supabase dibungkus dalam blok `try / catch` dengan pesan yang ramah pengguna dan mekanisme *fallback* ke penyimpanan lokal agar aplikasi tidak pernah mengalami *crash*.
+- **Toast Notification (`sonner`):**
+  - Menggantikan `alert()` bawaan peramban dengan pop-up notifikasi halus dari pustaka **Sonner** (`toast.success` & `toast.error`) saat berhasil membuat ruang, bergabung ke ruang, atau menghapus sesi dari Supabase.
+
+---
+
+## Panduan Uji Coba Fitur untuk Mentor (Modul 8)
+
+Mentor dapat menguji seluruh fungsionalitas Modul 8 secara langsung melalui halaman beranda (`/`):
+
+1. **Menguji Search, Filter Kategori & Empty State (Data Dinamis):**
+   - Gulir ke bagian **03 / Kurikulum 4 Pilar & 40 Skenario Nyata** (`#empat-pilar`).
+   - Klik tab **MOD-01**, **MOD-02**, **MOD-03**, atau **MOD-04** untuk memfilter kategori modul.
+   - Ketik kata kunci seperti `"mertua"` atau `"cicilan"` pada kolom pencarian untuk melihat penyaringan *real-time*.
+   - Ketik kata acak (misal: `"xyz123"`) untuk memunculkan tampilan **Empty State** dan klik tombol **Reset Pencarian**.
+2. **Menguji Form Interaktif, Validasi Input, Loading Spinner & Toast Notification:**
+   - Pada bagian atas kanan (**Terminal Ruang Privat**), pilih tab **Buat Ruang Baru**.
+   - Coba masukkan 1 huruf saja (misal: `"A"`) lalu klik submit untuk melihat **pesan error validasi inline** di bawah input.
+   - Masukkan nama valid (misal: `"Bima"`) lalu klik **Buat Kode Ruang & 4-Digit PIN**. Perhatikan perubahan tombol menjadi *Loading Spinner*, diikuti kemunculan **Toast Notification (Sonner)** dan kartu Kode Ruang + PIN.
+   - Pindah ke tab **Gabung Ruang Pasangan**, coba masukkan kode ruang dengan format salah (misal: `"ABC"`) untuk menguji validasi format `VWS-XXX`.
+3. **Menguji Read & Delete Database Supabase + Loading Skeleton:**
+   - Pada kartu **Sesi Ruang Pasangan** di bawah form terminal, klik ikon **Refresh (Muat Ulang)** untuk melihat animasi **Loading Skeleton** saat aplikasi menarik daftar sesi dari tabel `rooms` Supabase.
+   - Klik ikon **Trash (Hapus)** pada salah satu sesi ruang untuk menguji operasi `DELETE` ke Supabase beserta pop-up *Toast Notification*.
+4. **Menguji Alur Lengkap 1-Klik (`VWS-DEMO`):**
+   - Klik tombol **Buka Ruang Simulasi** di pojok kanan atas atau bilah pintasan di bawah diagram alur untuk langsung menguji halaman *Dashboard*, *Pengantar*, *10 Skenario*, *Ruang Tunggu*, *Hasil & Form Kompromi*, hingga *Piagam PDF*.
 
 ---
 
@@ -101,19 +164,23 @@ Diskusi tatap muka langsung sering kali terdistorsi oleh ***pleasing-bias***, di
 blind-alignment/
 ├── app/
 │   ├── components/
-│   │   ├── AlignmentResultPage.tsx  # Halaman buka segel & form kompromi
+│   │   ├── AlignmentResultPage.tsx  # Halaman buka segel, donut chart & form kompromi
 │   │   ├── AppHeader.tsx            # Header editorial 2 tingkat & navigasi sesi
 │   │   ├── DashboardPage.tsx        # Dashboard status 4 modul berjenjang
 │   │   ├── DilemmaRunnerPage.tsx    # Lembar pengerjaan 10 skenario dilema
 │   │   ├── FinalCharterPage.tsx     # Piagam kesepakatan & cetak PDF
-│   │   ├── JoinRoomPage.tsx         # Landing page, terminal ruang & simulasi
+│   │   ├── JoinRoomPage.tsx         # Landing page, form CRUD Supabase, search & filter
 │   │   ├── ModuleIntroPage.tsx      # Panduan pra-pengisian modul
 │   │   ├── SignaturePad.tsx         # Komponen kanvas tanda tangan digital
+│   │   ├── VisualIllustrations.tsx  # 5 Komponen ilustrasi & diagram SVG domain-spesifik
 │   │   └── WaitingRevealPage.tsx    # Ruang tunggu sinkronisasi kunci jawaban
 │   ├── data/
 │   │   └── scenarios.ts             # Basis data 40 skenario dilema terstruktur
 │   ├── lib/
-│   │   └── sessionStore.ts          # State management lokal & logika dual-blind
+│   │   ├── charterGenerator.ts      # Generator dokumen cetak PDF & hash SHA-256
+│   │   ├── scoring.ts               # Kalkulasi persentase keselarasan pasangan
+│   │   ├── sessionStore.ts          # Operasi CRUD Supabase + state management lokal
+│   │   └── supabase.ts              # Konfigurasi klien @supabase/supabase-js
 │   ├── room/
 │   │   └── [code]/                  # Rute dinamis sesi per kode ruang
 │   │       ├── charter/page.tsx
@@ -123,10 +190,11 @@ blind-alignment/
 │   │       ├── waiting/page.tsx
 │   │       └── page.tsx
 │   ├── globals.css                  # Gaya tema antislop, dark mode & scroll offset
-│   ├── layout.tsx                   # Root layout Next.js
+│   ├── layout.tsx                   # Root layout Next.js + Sonner Toaster
 │   └── page.tsx                     # Entry point beranda
 ├── public/                          # Aset statis & ikon
-├── docs/                            # Berkas PRD & dokumentasi luaran
+├── .env.local                       # Kredensial Supabase (diabaikan oleh .gitignore)
+├── .npmrc                           # Konfigurasi resolusi dependensi Vercel
 ├── package.json                     # Konfigurasi dependensi proyek
 ├── tsconfig.json                    # Konfigurasi TypeScript
 └── README.md                        # Dokumentasi utama proyek
@@ -154,13 +222,20 @@ blind-alignment/
    npm install
    ```
 
-3. **Jalankan Server Pengembangan:**
+3. **Konfigurasi Variabel Lingkungan (`.env.local`):**
+   Buat berkas `.env.local` di direktori utama (berkas ini aman di dalam `.gitignore` dan tidak diunggah ke GitHub publik):
+   ```env
+   NEXT_PUBLIC_SUPABASE_URL=https://<project-id>.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-public-key>
+   ```
+
+4. **Jalankan Server Pengembangan:**
    ```bash
    npm run dev
    ```
    Buka peramban di alamat [http://localhost:3000](http://localhost:3000).
 
-4. **Uji Validasi TypeScript & Build Produksi:**
+5. **Uji Validasi TypeScript & Build Produksi:**
    ```bash
    # Pemeriksaan tipe data (0 errors)
    node node_modules/typescript/bin/tsc --noEmit
@@ -173,26 +248,29 @@ blind-alignment/
 
 ## Log Prompt AI & Catatan Perbaikan Manual
 
-### 1. Log Prompt AI Utama
+### 1. Log Prompt AI Utama (Modul 7 & Upgrade Modul 8)
 
 | No | Kebutuhan Fitur | Log Prompt yang Digunakan | Hasil Kode yang Digenerasi |
 | :---: | :--- | :--- | :--- |
-| 1 | **Arsitektur Rute & Sesi** | *"Buat struktur modular Next.js App Router untuk sistem pre-marital quiz dengan rute: dashboard, intro, dilemma, waiting, result, dan charter menggunakan state lokal."* | Rute folder `/room/[code]/*` dan fungsi pembantu sesi di `sessionStore.ts`. |
-| 2 | **Kurikulum 40 Skenario** | *"Susun 40 skenario dilema pra-nikah kontekstual masyarakat Indonesia yang dibagi ke 4 modul (keuangan, mertua, anak, pembagian peran) dengan 3 opsi realistis."* | Basis data terstruktur pada `app/data/scenarios.ts`. |
-| 3 | **Kanvas Tanda Tangan** | *"Buat komponen SignaturePad di React yang mendukung event mouse desktop dan layar sentuh smartphone serta menyediakan tombol hapus dan simpan ke data URL."* | Komponen `app/components/SignaturePad.tsx`. |
-| 4 | **Sistem Kunci Modul** | *"Buat sistem agar Modul 2, 3, dan 4 terkunci sampai modul sebelumnya selesai dijawab dan ditandatangani di piagam."* | Penambahan state `completedModules` dan validasi guard pada `sessionStore.ts`. |
-| 5 | **Redesain Antislop Header** | *"Perbaiki glitch header yang berkedip dan terpotong di layar 1366px dengan membuat tata letak editorial dua baris dan menu drawer mobile."* | Komponen `app/components/AppHeader.tsx` dua tingkat (*Two-Tier Bar*). |
+| 1 | **Arsitektur Rute & Sesi (Modul 7)** | *"Buat struktur modular Next.js App Router untuk sistem pre-marital quiz dengan rute: dashboard, intro, dilemma, waiting, result, dan charter menggunakan state lokal."* | Rute folder `/room/[code]/*` dan fungsi pembantu sesi di `sessionStore.ts`. |
+| 2 | **Kurikulum 40 Skenario (Modul 7)** | *"Susun 40 skenario dilema pra-nikah kontekstual masyarakat Indonesia yang dibagi ke 4 modul (keuangan, mertua, anak, pembagian peran) dengan 3 opsi realistis."* | Basis data terstruktur pada `app/data/scenarios.ts`. |
+| 3 | **Integrasi CRUD Database Supabase (Modul 8)** | *"Pertahankan seluruh class styling yang sudah ada. Hubungkan pembuatan ruang (Create), daftar sesi ruang (Read), verifikasi gabung ruang dengan PIN (Update), dan hapus ruang (Delete) ke tabel rooms di Supabase dengan fallback localStorage."* | Modul `app/lib/supabase.ts` serta fungsi `createRoomAsync`, `fetchRoomsFromSupabase`, `joinRoomAsync`, dan `deleteRoomAsync` di `app/lib/sessionStore.ts`. |
+| 4 | **Fitur Search, Filter & UX States (Modul 8)** | *"Pertahankan seluruh class styling yang sudah ada. Tambahkan pencarian kata kunci real-time pada 40 skenario, Empty State dengan tombol Reset, Loading Skeleton saat mengambil data Supabase, validasi input inline, dan Toast Notification menggunakan Sonner."* | Pembaruan interaktif pada `app/components/JoinRoomPage.tsx` dan `<Toaster />` di `app/layout.tsx`. |
+| 5 | **Ilustrasi Visual SVG & Pemangkasan Teks (Modul 8)** | *"Perbaiki UI dengan mengurangi blok teks yang terlalu panjang dan tambahkan ilustrasi diagram SVG kustom sesuai topik 4 pilar pra-nikah tanpa merusak fungsi CRUD dan filter."* | Komponen `app/components/VisualIllustrations.tsx` yang terintegrasi ke 6 halaman utama. |
 
 ### 2. Catatan Perbaikan Manual (Human Debugging)
-Meskipun kerangka kode dibantu oleh AI, sejumlah penyesuaian manual dilakukan untuk menjamin keandalan aplikasi:
-1. **Perbaikan *Synchronous Hydration* pada Hook `useRoom`:**
-   - *Kendala:* Inisialisasi awal `useState(null)` menunggu `useEffect` membaca `localStorage`, menyebabkan kedipan tulisan `Ruang VWS-000` dan pesan kunci palsu saat berpindah rute.
+Meskipun kerangka kode dibantu oleh AI, sejumlah perbaikan teknis dilakukan secara manual untuk menjamin keandalan aplikasi di tahap produksi:
+1. **Penanganan Kebijakan RLS (*Row Level Security*) & Izin Tabel Supabase (Modul 8):**
+   - *Kendala:* Saat menguji operasi `INSERT` dan `SELECT` menggunakan `NEXT_PUBLIC_SUPABASE_ANON_KEY`, Supabase mengembalikan error `42501 (permission denied for table rooms)`.
+   - *Solusi Manual:* Menambahkan konfigurasi kebijakan SQL (`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.rooms TO anon, authenticated;` serta `CREATE POLICY`) di SQL Editor Supabase, dan melengkapi `sessionStore.ts` dengan blok `try / catch` yang otomatis beralih ke `localStorage` apabila koneksi cloud terkendala.
+2. **Perbaikan Konflik Dependensi `ERESOLVE` ESLint saat Deploy ke Vercel (Modul 8):**
+   - *Kendala:* Proses *build* di Vercel gagal pada tahap `npm install` karena konflik *peer dependency* antara `eslint@^9` dan `eslint-config-next@14.2.35`.
+   - *Solusi Manual:* Menyesuaikan versi `"eslint": "^8.57.0"` pada `package.json` dan menambahkan konfigurasi `legacy-peer-deps=true` di dalam berkas `.npmrc`.
+3. **Perbaikan *Synchronous Hydration* pada Hook `useRoom`:**
+   - *Kendala:* Inisialisasi awal `useState(null)` menunggu `useEffect` membaca `localStorage`, menyebabkan kedipan tulisan `Ruang VWS-000` saat berpindah rute.
    - *Solusi Manual:* Mengubah inisialisasi state menjadi *lazy initializer* sinkron yang langsung membaca data sesi pada frame pertama perenderan.
-2. **Koreksi Sticky Wrapper pada Dilemma Runner:**
-   - *Kendala:* Header terbungkus di dalam elemen `div` bersarang yang menyebabkan posisi `sticky top-0` lepas saat halaman digulir.
-   - *Solusi Manual:* Menata ulang hirarki DOM agar `<AppHeader>` terpasang langsung di bawah kontainer terluar.
-3. **Penyempurnaan Offset Anchor Scroll:**
-   - *Kendala:* Mengklik tautan navigasi beranda (`#mulai-sesi`, `#cara-kerja`, `#faq`) membuat judul bagian tertutup oleh sticky header.
+4. **Penyempurnaan Offset Anchor Scroll & Sticky Header:**
+   - *Kendala:* Mengklik tautan navigasi beranda (`#mulai-sesi`, `#cara-kerja`, `#empat-pilar`, `#faq`) membuat judul bagian tertutup oleh *sticky header*.
    - *Solusi Manual:* Menambahkan aturan `scroll-padding-top: 5rem;` dan `scroll-behavior: smooth;` pada file `app/globals.css`.
 
 ---

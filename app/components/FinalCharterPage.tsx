@@ -17,6 +17,7 @@ import {
   generateSessionHash,
   generatePrintDocument,
 } from "../lib/charterGenerator";
+import { CharterSealEmblem } from "./VisualIllustrations";
 
 interface FinalCharterProps {
   onBackToDashboard: () => void;
@@ -214,8 +215,8 @@ export const FinalCharterPage: React.FC<FinalCharterProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           {/* Left: Formal Living Charter Certificate */}
           <div className="lg:col-span-8 bg-[#FFFFFF] rounded-xl p-6 sm:p-10 border-2 border-[#CBD5E1] space-y-8">
-            {/* Document Header */}
-            <div className="flex items-start justify-between border-b-2 border-[#1E293B] pb-6 gap-4">
+            {/* Document Header with Official Visual Emblem */}
+            <div className="flex items-center justify-between border-b-2 border-[#1E293B] pb-6 gap-4">
               <div>
                 <div className="text-xs font-mono tracking-widest text-[#0F766E] uppercase font-bold">
                   PIAGAM KESEPAKATAN PRA-NIKAH · PASAL {articleRoman}
@@ -224,18 +225,13 @@ export const FinalCharterPage: React.FC<FinalCharterProps> = ({
                   {articleTitle}
                 </h2>
                 <p className="text-xs sm:text-sm text-[#475569] font-medium mt-1">
-                  Disepakati secara sadar oleh{" "}
+                  Disepakati oleh{" "}
                   <strong className="text-[#1E293B]">{hostName}</strong> &amp;{" "}
                   <strong className="text-[#1E293B]">{guestName}</strong>
                 </p>
               </div>
-              <div className="text-right hidden sm:block shrink-0">
-                <span className="font-bold text-base text-[#1E293B] block">
-                  VowSync
-                </span>
-                <span className="text-xs text-[#475569] font-mono">
-                  SalingPaham
-                </span>
+              <div className="shrink-0">
+                <CharterSealEmblem />
               </div>
             </div>
 

@@ -95,6 +95,89 @@ export const listSavedRooms = (): RoomState[] => {
   return rooms;
 };
 
+export const deleteRoom = (code: string) => {
+  if (typeof window === "undefined" || !code) return;
+  localStorage.removeItem(KEY + code.toUpperCase());
+  window.dispatchEvent(new Event("vowsync:update"));
+};
+
+export const deleteRoomAsync = async (code: string): Promise<{ success: boolean; cloudDeleted: boolean }> => {
+  const normalizedCode = code.toUpperCase();
+  deleteRoom(normalizedCode);
+
+  let cloudDeleted = false;
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { error } = await supabase.from("rooms").delete().eq("code", normalizedCode);
+      if (!error) {
+        cloudDeleted = true;
+      } else {
+        console.warn("Supabase delete warning:", error.message);
+      }
+    } catch (err) {
+      console.warn("Supabase delete error:", err);
+    }
+  }
+
+  return { success: true, cloudDeleted };
+};
+
+export const fetchRoomsFromSupabase = async (): Promise<RoomState[]> => {
+  const localRooms = listSavedRooms();
+
+  if (!isSupabaseConfigured || !supabase) {
+    return localRooms;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("rooms")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(15);
+
+    if (error || !data) {
+      console.warn("Supabase fetch rooms warning, falling back to local:", error?.message);
+      return localRooms;
+    }
+
+    // Map Supabase rows to RoomState structure
+    const cloudRooms: RoomState[] = data.map((row) => {
+      const existingLocal = readRoom(row.code);
+      return {
+        code: row.code,
+        passcode: row.passcode || "0000",
+        host: existingLocal?.host || emptyParticipant(row.host_name || "Host", true),
+        guest: {
+          ...(existingLocal?.guest || emptyParticipant(row.guest_name || "", Boolean(row.guest_name))),
+          name: row.guest_name || existingLocal?.guest.name || "",
+          isJoined: Boolean(row.guest_name || existingLocal?.guest.isJoined),
+        },
+        compromises: existingLocal?.compromises || [],
+        completedModules: row.completed_modules || existingLocal?.completedModules || [],
+      };
+    });
+
+    // Merge cloud rooms with any demo or local-only rooms
+    const mergedMap = new Map<string, RoomState>();
+    for (const r of cloudRooms) {
+      mergedMap.set(r.code, r);
+      // Cache to local storage
+      writeRoom(r);
+    }
+    for (const r of localRooms) {
+      if (!mergedMap.has(r.code)) {
+        mergedMap.set(r.code, r);
+      }
+    }
+
+    return Array.from(mergedMap.values());
+  } catch (err) {
+    console.warn("Supabase fetch rooms error, falling back to local:", err);
+    return localRooms;
+  }
+};
+
 export const activateRoomSession = (code: string, role: Role = "host") => {
   if (typeof window === "undefined") return;
   sessionStorage.setItem(CODE_KEY, code.toUpperCase());

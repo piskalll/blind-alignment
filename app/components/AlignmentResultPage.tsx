@@ -16,6 +16,7 @@ import {
 import { useRoom, simulatePartnerLock } from "../lib/sessionStore";
 import { computeAlignment } from "../lib/scoring";
 import { SCENARIOS, MODULES } from "../data/scenarios";
+import { AlignmentDonutVisual } from "./VisualIllustrations";
 
 interface AlignmentResultProps {
   onProceedToCharter: () => void;
@@ -196,77 +197,36 @@ export const AlignmentResultPage: React.FC<AlignmentResultProps> = ({
           </div>
         ) : (
           <>
-            {/* Top Header & Score Ledger */}
+            {/* Top Header & Visual Radial Score Ledger */}
             <div className="bg-[#FFFFFF] rounded-xl p-6 sm:p-8 border border-[#CBD5E1]">
               <div className="text-xs font-mono font-bold tracking-wider text-[#0F766E] uppercase mb-1">
                 PEMBUKAAN SEGEL SERENTAK · MODUL 0{moduleId}
               </div>
 
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-8 border-b border-[#E2E8F0]">
-                <div>
-                  <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1E293B] tracking-tight">
-                    Peta Keselarasan: {currentModule.title}
-                  </h1>
-                  <p className="text-xs sm:text-sm text-[#475569] mt-1">
-                    Dihitung langsung dari perbandingan jawaban independen{" "}
-                    <strong>{myName || "Anda"}</strong> dan{" "}
-                    <strong>{partnerName || "Pasangan"}</strong>.
-                  </p>
-                </div>
-
-                <div
-                  className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shrink-0 border ${
-                    overallScore >= 70
-                      ? "bg-[#ECFDF5] border-[#A7F3D0] text-[#065F46]"
-                      : overallScore >= 50
-                      ? "bg-[#FFFBEB] border-[#FDE68A] text-[#92400E]"
-                      : "bg-[#FEF2F2] border-[#FECACA] text-[#991B1B]"
-                  }`}
-                >
-                  <span className="text-3xl sm:text-4xl font-extrabold font-mono tabular-nums">
-                    {overallScore}%
-                  </span>
-                  <span className="text-xs font-bold leading-tight">
-                    Tingkat
-                    <br />
-                    Keselarasan
-                  </span>
-                </div>
+              <div className="pb-6 border-b border-[#E2E8F0]">
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1E293B] tracking-tight">
+                  Peta Keselarasan: {currentModule.title}
+                </h1>
+                <p className="text-xs sm:text-sm text-[#475569] mt-1">
+                  Perbandingan independen jawaban{" "}
+                  <strong>{myName || "Anda"}</strong> dan{" "}
+                  <strong>{partnerName || "Pasangan"}</strong>.
+                </p>
               </div>
 
               {/* Category Breakdown Grid */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center pt-8">
-                {/* Summary Ledger Box */}
-                <div className="lg:col-span-5 p-6 bg-[#F8FAF7] rounded-xl border border-[#E2E8F0] space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="p-4 rounded-lg bg-[#FFFFFF] border border-[#CBD5E1]">
-                      <div className="font-mono text-2xl font-extrabold text-[#0F766E] tabular-nums">
-                        {alignedScenarios.length}
-                      </div>
-                      <div className="text-xs font-bold text-[#1E293B] mt-0.5">
-                        Skenario Selaras
-                      </div>
-                      <div className="text-[11px] text-[#475569]">
-                        Pilihan sejalan
-                      </div>
-                    </div>
-                    <div className="p-4 rounded-lg bg-[#FFFFFF] border border-[#CBD5E1]">
-                      <div className="font-mono text-2xl font-extrabold text-[#991B1B] tabular-nums">
-                        {criticalScenarios.length}
-                      </div>
-                      <div className="text-xs font-bold text-[#1E293B] mt-0.5">
-                        Perlu Kompromi
-                      </div>
-                      <div className="text-[11px] text-[#475569]">
-                        Berbeda pandangan
-                      </div>
-                    </div>
-                  </div>
-
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center pt-6">
+                {/* Radial Donut Visual Box */}
+                <div className="lg:col-span-5 space-y-3">
+                  <AlignmentDonutVisual
+                    score={overallScore}
+                    alignedCount={alignedScenarios.length}
+                    conflictCount={criticalScenarios.length}
+                  />
                   <p className="text-xs text-[#475569] leading-relaxed">
                     {criticalScenarios.length > 0
-                      ? `Terdapat ${criticalScenarios.length} topik dengan pilihan berbeda. Diskusikan dan catat jalan tengahnya pada masing-masing kartu di bawah sebelum mengesahkan Piagam.`
-                      : "Seluruh 10 skenario pada modul ini telah selaras. Anda dapat langsung melanjutkan ke pengesahan Piagam Kesepakatan."}
+                      ? `Terdapat ${criticalScenarios.length} topik berbeda. Catat kompromi di bawah sebelum mengesahkan Piagam.`
+                      : "Seluruh 10 skenario telah selaras dan siap disahkan di Piagam."}
                   </p>
                 </div>
 

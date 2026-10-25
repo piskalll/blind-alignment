@@ -19,6 +19,7 @@ import {
   activateRoomSession,
 } from "../lib/sessionStore";
 import { SCENARIOS, MODULES } from "../data/scenarios";
+import { VaultWaitingIllustration } from "./VisualIllustrations";
 
 interface WaitingRevealProps {
   onRevealTogether: () => void;
@@ -28,16 +29,16 @@ interface WaitingRevealProps {
 
 const DISCUSSION_GUIDES = [
   {
-    title: "1. Rumus Kas Bersama, Tabungan, dan Uang Saku Pribadi",
-    body: "Saat hasil terbuka dan pilihan kalian berbeda soal rekening, hindari kalimat 'Kamu tidak percaya padaku'. Gunakan pendekatan tiga pos: (1) Pos Kebutuhan Rumah Tangga Bersama, (2) Pos Tabungan & Dana Darurat, dan (3) Pos Uang Saku Pribadi tanpa perlu izin untuk menjaga otonomi masing-masing.",
+    title: "1. Rumus 3 Pos Rekening Rumah Tangga",
+    body: "Bagi pendapatan ke dalam 3 pos: (1) Kebutuhan Bersama, (2) Tabungan & Dana Darurat, dan (3) Uang Saku Pribadi tanpa perlu izin.",
   },
   {
-    title: "2. Menetapkan Batas Bantuan Keluarga Besar SecaraTerhormat",
-    body: "Jika terdapat selisih nominal bantuan untuk orang tua atau mertua, sepakati dulu batas persentase maksimal dari pendapatan bersih rumah tangga. Prinsip utamanya: komunikasi ke keluarga besar selalu disampaikan oleh anak kandung masing-masing atas nama kesepakatan berdua.",
+    title: "2. Batas Bantuan Keluarga Besar",
+    body: "Sepakati batas persentase maksimal dari pendapatan bersih, dan sampaikan keputusan melalui anak kandung masing-masing.",
   },
   {
-    title: "3. Membahas Utang atau Ketakutan Masa Depan Tanpa Menyalahkan",
-    body: "Perbedaan jawaban di VowSync bukan tanda ketidakcocokan, melainkan peta risiko yang berhasil ditemukan sebelum akad. Fokuslah pada pertanyaan: 'Aturan tertulis apa yang membuat kita berdua merasa aman jika situasi ini terjadi?'",
+    title: "3. Fokus pada Aturan Tertulis",
+    body: "Perbedaan pilihan adalah peta risiko pra-nikah. Fokus pada aturan tertulis yang membuat kedua pihak merasa aman.",
   },
 ];
 
@@ -129,18 +130,23 @@ export const WaitingRevealPage: React.FC<WaitingRevealProps> = ({
             </span>
           </div>
 
-          <div className="space-y-3">
-            <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-[#FFFFFF] leading-tight">
+          <div className="space-y-2">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#FFFFFF] leading-tight">
               {isLockedForThisModule
-                ? `Anda dan ${partnerName || "Pasangan"} telah mengunci jawaban Modul ${moduleId}.`
-                : `Jawaban Anda telah disegel. Menunggu ${partnerName || "Pasangan"} menyelesaikan Modul ${moduleId}.`}
+                ? `Segel Modul ${moduleId} Siap Dibuka.`
+                : `Jawaban Anda Tersegel. Menunggu ${partnerName || "Pasangan"}.`}
             </h1>
-            <p className="text-[#CBD5E1] text-sm sm:text-base max-w-2xl leading-relaxed">
+            <p className="text-[#CBD5E1] text-xs sm:text-sm max-w-xl">
               {isLockedForThisModule
-                ? "Seluruh 10 skenario pada modul ini telah terkunci dari kedua belah pihak. Klik tombol di bawah untuk membuka perbandingan jawaban secara serentak."
-                : `Pilihan Anda untuk "${currentModule.title}" disimpan secara terenkripsi di peramban. Isi jawaban tetap tertutup sampai kedua pihak mengunci 10 skenario.`}
+                ? "Kedua kunci telah terverifikasi. Buka perbandingan jawaban sekarang."
+                : `Pilihan untuk "${currentModule.title}" tetap tertutup sampai kedua pihak mengunci 10 skenario.`}
             </p>
           </div>
+
+          <VaultWaitingIllustration
+            isUnlocked={isLockedForThisModule}
+            partnerProgress={partnerAnswerCount}
+          />
 
           {/* Primary Actions */}
           <div className="pt-2 flex flex-wrap items-center gap-3">

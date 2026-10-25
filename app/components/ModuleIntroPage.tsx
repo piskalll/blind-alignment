@@ -6,6 +6,7 @@ import { AppHeader } from "./AppHeader";
 import { SCENARIOS, MODULES } from "../data/scenarios";
 import { Shield, Home, LayoutGrid } from "lucide-react";
 import { useRoom } from "../lib/sessionStore";
+import { ModulePillarIllustration } from "./VisualIllustrations";
 
 interface ModuleIntroProps {
   onBack: () => void;
@@ -84,34 +85,28 @@ export const ModuleIntroPage: React.FC<ModuleIntroProps> = ({
           </span>
         </nav>
 
-        {/* Title */}
-        <div className="space-y-2">
-          <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#0F766E] block">
-            PENGANTAR MODUL 0{moduleId} · 10 SKENARIO KEPUTUSAN
-          </span>
-          <h1 className="text-2xl sm:text-4xl font-extrabold text-[#1E293B] tracking-tight">
-            {currentModule.title}
-          </h1>
-          <p className="text-sm sm:text-base text-[#475569] max-w-3xl leading-relaxed">
-            {currentModule.description}
-          </p>
-        </div>
-
-        {/* Privacy Banner */}
-        <div className="bg-[#ECFDF5] border border-[#A7F3D0] rounded-xl p-4 sm:p-5 flex items-start gap-3.5 text-[#065F46]">
-          <div className="w-9 h-9 rounded-lg bg-[#FFFFFF] border border-[#A7F3D0] flex items-center justify-center shrink-0">
-            <Shield className="w-4 h-4 text-[#0F766E]" />
-          </div>
-          <div className="space-y-1">
-            <div className="text-xs font-bold uppercase tracking-wider text-[#065F46]">
-              Jaminan Segel Ganda Tanpa Kebocoran (Dual-Blind)
-            </div>
-            <p className="text-xs sm:text-sm font-medium text-[#1E293B] leading-relaxed">
-              Pilihan Anda disegel secara independen di peramban.{" "}
-              <strong>{partnerName || "Pasangan Anda"}</strong> tidak dapat
-              melihat jawaban Anda sampai kedua pihak mengunci seluruh 10
-              skenario pada modul ini.
+        {/* Title & Visual Illustration Header */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center bg-[#FFFFFF] border border-[#CBD5E1] rounded-xl p-5 sm:p-7">
+          <div className="lg:col-span-7 space-y-2">
+            <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#0F766E] block">
+              PENGANTAR MODUL 0{moduleId} · 10 SKENARIO KEPUTUSAN
+            </span>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1E293B] tracking-tight">
+              {currentModule.title}
+            </h1>
+            <p className="text-xs sm:text-sm text-[#475569] leading-relaxed">
+              {currentModule.subtitle}
             </p>
+            <div className="pt-2 flex items-center gap-2 text-xs font-semibold text-[#065F46]">
+              <Shield className="w-4 h-4 text-[#0F766E] shrink-0" />
+              <span>
+                Segel Dual-Blind aktif: pilihan Anda disembunyikan sampai{" "}
+                <strong>{partnerName || "Pasangan"}</strong> selesai menjawab.
+              </span>
+            </div>
+          </div>
+          <div className="lg:col-span-5">
+            <ModulePillarIllustration moduleId={moduleId} />
           </div>
         </div>
 
@@ -176,7 +171,7 @@ export const ModuleIntroPage: React.FC<ModuleIntroProps> = ({
               </div>
             </div>
 
-            <div className="space-y-3.5">
+            <div className="space-y-3">
               <label className="flex items-start gap-3 cursor-pointer">
                 <input
                   type="checkbox"
@@ -184,10 +179,9 @@ export const ModuleIntroPage: React.FC<ModuleIntroProps> = ({
                   onChange={(e) => setCheck1(e.target.checked)}
                   className="mt-0.5 h-4 w-4 rounded border-[#CBD5E1] text-[#0F766E] focus:ring-[#0F766E] cursor-pointer shrink-0"
                 />
-                <span className="text-xs font-medium text-[#1E293B] leading-relaxed">
-                  <strong>{myName || "Saya"}</strong> mengisi sesi ini secara
-                  mandiri tanpa diintip oleh pasangan selama 10 hingga 15 menit
-                  ke depan.
+                <span className="text-xs font-medium text-[#1E293B] leading-snug">
+                  <strong>{myName || "Saya"}</strong> mengisi secara mandiri tanpa
+                  diintip pasangan.
                 </span>
               </label>
 
@@ -198,11 +192,9 @@ export const ModuleIntroPage: React.FC<ModuleIntroProps> = ({
                   onChange={(e) => setCheck2(e.target.checked)}
                   className="mt-0.5 h-4 w-4 rounded border-[#CBD5E1] text-[#0F766E] focus:ring-[#0F766E] cursor-pointer shrink-0"
                 />
-                <span className="text-xs font-medium text-[#1E293B] leading-relaxed">
-                  <strong>
-                    Saya berkomitmen memilih jawaban yang paling jujur
-                  </strong>
-                  , bukan jawaban yang sekadar menyenangkan hati pasangan.
+                <span className="text-xs font-medium text-[#1E293B] leading-snug">
+                  <strong>Memilih jawaban paling jujur</strong>, bukan sekadar
+                  menyenangkan pasangan.
                 </span>
               </label>
 
@@ -213,9 +205,8 @@ export const ModuleIntroPage: React.FC<ModuleIntroProps> = ({
                   onChange={(e) => setCheck3(e.target.checked)}
                   className="mt-0.5 h-4 w-4 rounded border-[#CBD5E1] text-[#0F766E] focus:ring-[#0F766E] cursor-pointer shrink-0"
                 />
-                <span className="text-xs font-medium text-[#1E293B] leading-relaxed">
-                  Saya memahami bahwa perbedaan pilihan merupakan bahan diskusi
-                  sehat untuk merumuskan kompromi rumah tangga.
+                <span className="text-xs font-medium text-[#1E293B] leading-snug">
+                  Perbedaan pilihan dijadikan bahan diskusi untuk merumuskan kompromi.
                 </span>
               </label>
             </div>
