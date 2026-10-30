@@ -4,8 +4,8 @@ import React from "react";
 
 /**
  * Domain-specific SVG illustrations for VowSync (SalingPaham).
- * Each graphic directly depicts the Dual-Blind pre-marital mechanism or the 4 curriculum pillars
- * (Finance, In-Laws, Parenting, Domestic Roles) using theme-aware tokens so Light Mode stays 100% light (R-22, R-34).
+ * Each graphic directly depicts the Dual-Blind pre-marital mechanism or the curriculum pillars
+ * (Finance, In-Laws, Parenting, Domestic Roles, Custom Questions) using theme-aware tokens so Light Mode stays 100% light (R-22, R-34).
  */
 
 export const ModulePillarIllustration: React.FC<{
@@ -345,6 +345,147 @@ export const ModulePillarIllustration: React.FC<{
     );
   }
 
+  if (moduleId === 5) {
+    return (
+      <div
+        className={`w-full ${heightClass} rounded-lg bg-[#F0FDFA] border border-[#99F6E4] flex items-center justify-center p-3 overflow-hidden`}
+      >
+        <svg
+          viewBox="0 0 320 96"
+          className="w-full h-full"
+          role="img"
+          aria-label="Ilustrasi Modul 5: Bank Pertanyaan Kustom Pasangan dengan Segel Ganda"
+        >
+          {/* Left Author Sheet */}
+          <rect
+            x="14"
+            y="20"
+            width="76"
+            height="56"
+            rx="8"
+            fill="var(--surface-primary)"
+            stroke="#0F766E"
+            strokeWidth="2"
+          />
+          <text
+            x="52"
+            y="43"
+            textAnchor="middle"
+            fill="var(--status-aligned)"
+            fontSize="9"
+            fontWeight="800"
+            fontFamily="monospace"
+          >
+            PIHAK A
+          </text>
+          <text
+            x="52"
+            y="59"
+            textAnchor="middle"
+            fill="var(--text-default)"
+            fontSize="9.5"
+            fontWeight="700"
+            fontFamily="sans-serif"
+          >
+            + Buat Soal
+          </text>
+
+          <path
+            d="M 90 48 L 114 48"
+            stroke="var(--status-aligned)"
+            strokeWidth="2"
+            strokeDasharray="3 3"
+          />
+
+          {/* Center Custom Ledger */}
+          <rect
+            x="114"
+            y="10"
+            width="92"
+            height="76"
+            rx="10"
+            fill="var(--surface-primary)"
+            stroke="#0F766E"
+            strokeWidth="2"
+          />
+          <text
+            x="160"
+            y="29"
+            textAnchor="middle"
+            fill="var(--status-aligned)"
+            fontSize="9"
+            fontWeight="800"
+            fontFamily="monospace"
+          >
+            MOD-05 KUSTOM
+          </text>
+          <text
+            x="160"
+            y="49"
+            textAnchor="middle"
+            fill="var(--text-default)"
+            fontSize="10"
+            fontWeight="700"
+            fontFamily="sans-serif"
+          >
+            A/B/C &amp; Esai
+          </text>
+          <text
+            x="160"
+            y="67"
+            textAnchor="middle"
+            fill="var(--text-muted)"
+            fontSize="8.5"
+            fontFamily="monospace"
+          >
+            Maks. 15 Soal
+          </text>
+
+          <path
+            d="M 206 48 L 230 48"
+            stroke="var(--status-aligned)"
+            strokeWidth="2"
+            strokeDasharray="3 3"
+          />
+
+          {/* Right Author Sheet */}
+          <rect
+            x="230"
+            y="20"
+            width="76"
+            height="56"
+            rx="8"
+            fill="var(--surface-primary)"
+            stroke="#0F766E"
+            strokeWidth="2"
+          />
+          <text
+            x="268"
+            y="43"
+            textAnchor="middle"
+            fill="var(--status-aligned)"
+            fontSize="9"
+            fontWeight="800"
+            fontFamily="monospace"
+          >
+            PIHAK B
+          </text>
+          <text
+            x="268"
+            y="59"
+            textAnchor="middle"
+            fill="var(--text-default)"
+            fontSize="9.5"
+            fontWeight="700"
+            fontFamily="sans-serif"
+          >
+            + Buat Soal
+          </text>
+        </svg>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`w-full ${heightClass} rounded-lg bg-[#F1F5F9] border border-[#CBD5E1] flex items-center justify-center p-3 overflow-hidden`}
@@ -415,7 +556,8 @@ export const ModulePillarIllustration: React.FC<{
 export const VaultWaitingIllustration: React.FC<{
   isUnlocked: boolean;
   partnerProgress: number;
-}> = ({ isUnlocked, partnerProgress }) => {
+  totalCount?: number;
+}> = ({ isUnlocked, partnerProgress, totalCount = 10 }) => {
   return (
     <div className="w-full rounded-xl bg-[#F8FAF7] border border-[#CBD5E1] p-4">
       <svg
@@ -465,7 +607,7 @@ export const VaultWaitingIllustration: React.FC<{
           fontWeight="700"
           fontFamily="monospace"
         >
-          10/10 TERSEGEL
+          {totalCount}/{totalCount} TERSEGEL
         </text>
 
         {/* Connector Left to Center */}
@@ -569,7 +711,9 @@ export const VaultWaitingIllustration: React.FC<{
           fontWeight="700"
           fontFamily="monospace"
         >
-          {isUnlocked ? "10/10 TERSEGEL" : `${partnerProgress}/10 DIJAWAB`}
+          {isUnlocked
+            ? `${totalCount}/${totalCount} TERSEGEL`
+            : `${partnerProgress}/${totalCount} DIJAWAB`}
         </text>
       </svg>
     </div>

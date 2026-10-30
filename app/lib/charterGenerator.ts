@@ -31,6 +31,8 @@ export function generatePrintDocument(params: {
   sessionHash: string;
   clauses: string[];
   timestamp: string;
+  articleRoman?: string;
+  articleTitle?: string;
 }) {
   const printWindow = window.open("", "_blank");
   if (!printWindow) {
@@ -170,8 +172,8 @@ export function generatePrintDocument(params: {
     <body>
       <div class="header">
         <div>
-          <div class="title-sub">Living Charter · Article I</div>
-          <h1 class="title-main">Financial Principles & Living Agreement</h1>
+          <div class="title-sub">Piagam Kesepakatan · Pasal ${params.articleRoman || "I"}</div>
+          <h1 class="title-main">${params.articleTitle || "Prinsip & Transparansi Finansial"}</h1>
         </div>
         <div style="text-align: right;">
           <div style="font-weight: bold; font-size: 18px; color: #0F766E;">VowSync</div>
@@ -196,7 +198,7 @@ export function generatePrintDocument(params: {
 
       <div class="clauses">
         <h3 style="font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: #1E293B; margin-bottom: 15px;">
-          Ratified Financial Commitments:
+          Butir Kesepakatan Bersama:
         </h3>
         ${params.clauses
           .map(

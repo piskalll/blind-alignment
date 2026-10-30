@@ -10,8 +10,10 @@ import {
   Printer,
   LayoutGrid,
   BookOpen,
+  PenLine,
 } from "lucide-react";
 import { useRoom } from "../lib/sessionStore";
+import { SCENARIOS } from "../data/scenarios";
 import { SignaturePad } from "./SignaturePad";
 import {
   generateSessionHash,
@@ -34,12 +36,15 @@ export const FinalCharterPage: React.FC<FinalCharterProps> = ({
   const {
     room,
     role,
+    me,
+    partnerAnswers,
     myName,
     partnerName,
     mySignature,
     partnerSignature,
     saveSignature,
     compromises,
+    customScenarios,
     markModuleCompleted,
   } = useRoom(roomCode);
 
@@ -50,17 +55,19 @@ export const FinalCharterPage: React.FC<FinalCharterProps> = ({
   const [timestamp, setTimestamp] = useState("19 Okt 2026, 08:00 WIB");
 
   useEffect(() => {
+    if (moduleId === 5 && customScenarios.length === 0) return;
     markModuleCompleted(moduleId);
-  }, [moduleId]);
+  }, [moduleId, customScenarios.length]);
 
-  const romanNumerals = ["I", "II", "III", "IV"];
-  const articleRoman = romanNumerals[(moduleId - 1) % 4] || "I";
+  const romanNumerals = ["I", "II", "III", "IV", "V"];
+  const articleRoman = romanNumerals[moduleId - 1] || "I";
 
   const moduleTitles: Record<number, string> = {
     1: "Prinsip & Transparansi Finansial",
     2: "Batasan Mertua & Keluarga Besar",
     3: "Visi Pengasuhan & Masa Depan Anak",
     4: "Pembagian Peran, Karier & Resolusi Konflik",
+    5: "Kesepakatan Topik Kustom Pasangan",
   };
 
   const articleTitle = moduleTitles[moduleId] || "Kesepakatan Rumah Tangga";
@@ -89,41 +96,76 @@ export const FinalCharterPage: React.FC<FinalCharterProps> = ({
 
   const clauses: string[] = [];
 
-  if (compromises && compromises.length > 0) {
-    compromises.forEach((c) => {
+  if (moduleId === 5) {
+    const customCompromises = (compromises || []).filter(
+      (c) => c.scenarioId >= 1001
+    );
+    customCompromises.forEach((c) => {
+      clauses.push(`[Kesepakatan ${c.title}]: ${c.agreementText}`);
+    });
+
+    if (clauses.length < 4 && customScenarios.length > 0) {
+      for (const sc of customScenarios) {
+        if (customCompromises.some((c) => c.scenarioId === sc.id)) continue;
+        if (sc.questionType === "essay") continue;
+        const myChoice = me?.answers?.[sc.id]?.choice;
+        const pChoice = partnerAnswers?.[sc.id]?.choice;
+        if (myChoice && pChoice && myChoice === pChoice) {
+          const optText = sc.options.find((o) => o.key === myChoice)?.text;
+          if (optText) {
+            clauses.push(`[Selaras ${sc.title}]: ${optText}`);
+          }
+        }
+      }
+    }
+
+    if (clauses.length === 0) {
+      clauses.push(
+        "Seluruh jawaban pada bank soal kustom pasangan telah dibuka melalui Segel Ganda dan dibahas bersama dengan kepala dingin.",
+        "Setiap kesepakatan khusus pada topik tambahan dievaluasi secara berkala demi menjaga keadilan dan kenyamanan kedua belah pihak."
+      );
+    }
+  } else {
+    const moduleCompromises = (compromises || []).filter((c) => {
+      if (c.scenarioId >= 1001) return false;
+      const sc = SCENARIOS.find((s) => s.id === c.scenarioId);
+      return sc ? sc.moduleId === moduleId : moduleId === 1;
+    });
+
+    moduleCompromises.forEach((c) => {
       clauses.push(`[Kompromi ${c.title}]: ${c.agreementText}`);
     });
-  }
 
-  if (clauses.length < 4) {
-    if (moduleId === 4) {
-      clauses.push(
-        "Privasi gawai dan akun digital dihormati bersama dengan batasan yang sehat tanpa saling memata-matai.",
-        "Tidak mendiamkan pasangan (silent treatment) lebih dari 2 jam ketika terjadi perselisihan.",
-        "Masalah dan dinamika internal rumah tangga tidak diunggah sebagai keluhan atau sindiran di media sosial.",
-        "Komitmen waktu berdua dan evaluasi berkala hubungan dirawat secara disiplin setiap bulan."
-      );
-    } else if (moduleId === 3) {
-      clauses.push(
-        "Waktu memiliki anak dan kesiapan tabungan kelahiran disepakati berdua tanpa tekanan pihak luar.",
-        "Pola pengasuhan anak pasca cuti melahirkan diputuskan bersama secara adil bagi keberlanjutan karier kedua pihak.",
-        "Aturan kedisiplinan, batas gawai, dan nilai dasar pendidikan anak dijalankan secara konsisten oleh ayah dan ibu.",
-        "Peran kakek-nenek dihormati sebagai pendukung kasih sayang, sementara keputusan utama pengasuhan tetap di tangan orang tua."
-      );
-    } else if (moduleId === 2) {
-      clauses.push(
-        "Tempat tinggal mandiri diprioritaskan demi menjaga kemandirian dan kedaulatan rumah tangga baru.",
-        "Kunjungan keluarga besar dan mertua disepakati memberi kabar terlebih dahulu demi kenyamanan bersama.",
-        "Bantuan finansial untuk keluarga besar mengikuti batas kemampuan kas bersama tanpa mengorbankan kebutuhan pokok keluarga inti.",
-        "Setiap gesekan dengan keluarga besar diselesaikan melalui pasangan kandung masing-masing sebagai jembatan komunikasi."
-      );
-    } else {
-      clauses.push(
-        "Total cicilan utang bulanan rumah tangga dijaga agar tidak melampaui 30% dari pendapatan bersih gabungan.",
-        "Pembentukan dana darurat minimal 6 bulan pengeluaran pokok menjadi prioritas sebelum mengambil komitmen cicilan konsumtif baru.",
-        "Pengeluaran pribadi di atas Rp 1.000.000 dikomunikasikan secara terbuka kepada pasangan sebelum transaksi dilakukan.",
-        "Alokasi tunjangan orang tua dan bantuan darurat keluarga mengikuti batas anggaran yang telah disepakati berdua."
-      );
+    if (clauses.length < 4) {
+      if (moduleId === 4) {
+        clauses.push(
+          "Privasi gawai dan akun digital dihormati bersama dengan batasan yang sehat tanpa saling memata-matai.",
+          "Tidak mendiamkan pasangan (silent treatment) lebih dari 2 jam ketika terjadi perselisihan.",
+          "Masalah dan dinamika internal rumah tangga tidak diunggah sebagai keluhan atau sindiran di media sosial.",
+          "Komitmen waktu berdua dan evaluasi berkala hubungan dirawat secara disiplin setiap bulan."
+        );
+      } else if (moduleId === 3) {
+        clauses.push(
+          "Waktu memiliki anak dan kesiapan tabungan kelahiran disepakati berdua tanpa tekanan pihak luar.",
+          "Pola pengasuhan anak pasca cuti melahirkan diputuskan bersama secara adil bagi keberlanjutan karier kedua pihak.",
+          "Aturan kedisiplinan, batas gawai, dan nilai dasar pendidikan anak dijalankan secara konsisten oleh ayah dan ibu.",
+          "Peran kakek-nenek dihormati sebagai pendukung kasih sayang, sementara keputusan utama pengasuhan tetap di tangan orang tua."
+        );
+      } else if (moduleId === 2) {
+        clauses.push(
+          "Tempat tinggal mandiri diprioritaskan demi menjaga kemandirian dan kedaulatan rumah tangga baru.",
+          "Kunjungan keluarga besar dan mertua disepakati memberi kabar terlebih dahulu demi kenyamanan bersama.",
+          "Bantuan finansial untuk keluarga besar mengikuti batas kemampuan kas bersama tanpa mengorbankan kebutuhan pokok keluarga inti.",
+          "Setiap gesekan dengan keluarga besar diselesaikan melalui pasangan kandung masing-masing sebagai jembatan komunikasi."
+        );
+      } else {
+        clauses.push(
+          "Total cicilan utang bulanan rumah tangga dijaga agar tidak melampaui 30% dari pendapatan bersih gabungan.",
+          "Pembentukan dana darurat minimal 6 bulan pengeluaran pokok menjadi prioritas sebelum mengambil komitmen cicilan konsumtif baru.",
+          "Pengeluaran pribadi di atas Rp 1.000.000 dikomunikasikan secara terbuka kepada pasangan sebelum transaksi dilakukan.",
+          "Alokasi tunjangan orang tua dan bantuan darurat keluarga mengikuti batas anggaran yang telah disepakati berdua."
+        );
+      }
     }
   }
 
@@ -134,7 +176,9 @@ export const FinalCharterPage: React.FC<FinalCharterProps> = ({
   const guestSignature = role === "host" ? partnerSignature : mySignature;
 
   const handleDownload = () => {
-    markModuleCompleted(moduleId);
+    if (moduleId !== 5 || customScenarios.length > 0) {
+      markModuleCompleted(moduleId);
+    }
     generatePrintDocument({
       roomCode: activeRoomCode,
       hostName: hostName || "Pihak Pertama",
@@ -146,11 +190,15 @@ export const FinalCharterPage: React.FC<FinalCharterProps> = ({
       sessionHash,
       clauses,
       timestamp,
+      articleRoman,
+      articleTitle,
     });
   };
 
   const handleBackToDashboard = () => {
-    markModuleCompleted(moduleId);
+    if (moduleId !== 5 || customScenarios.length > 0) {
+      markModuleCompleted(moduleId);
+    }
     onBackToDashboard();
   };
 
@@ -159,6 +207,11 @@ export const FinalCharterPage: React.FC<FinalCharterProps> = ({
     const nextMod = Math.min(4, moduleId + 1);
     router.push(`/room/${encodedRoom}/intro?module=${nextMod}`);
   };
+
+  const switcherModules =
+    customScenarios.length > 0 || moduleId === 5
+      ? [1, 2, 3, 4, 5]
+      : [1, 2, 3, 4];
 
   return (
     <div className="min-h-screen bg-[#F8FAF7] text-[#1E293B] flex flex-col">
@@ -186,7 +239,9 @@ export const FinalCharterPage: React.FC<FinalCharterProps> = ({
               </h1>
               <p className="text-xs sm:text-sm text-[#475569] mt-0.5">
                 {clauses.length} butir kesepakatan tercatat pada Piagam.
-                {moduleId < 4
+                {moduleId === 5
+                  ? " Kesepakatan topik kustom pasangan kini tersimpan pada Pasal V."
+                  : moduleId < 4
                   ? ` Modul ${moduleId + 1} kini telah terbuka di Dashboard.`
                   : " Seluruh 4 modul kurikulum pra-nikah telah lengkap."}
               </p>
@@ -194,12 +249,12 @@ export const FinalCharterPage: React.FC<FinalCharterProps> = ({
           </div>
 
           {/* Article Switcher */}
-          <div className="flex items-center gap-1.5 shrink-0">
-            {[1, 2, 3, 4].map((mId) => (
+          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+            {switcherModules.map((mId) => (
               <Link
                 key={mId}
                 href={`/room/${encodedRoom}/charter?module=${mId}`}
-                className={`min-h-[40px] px-3 py-1.5 rounded-lg font-mono text-xs font-bold border transition-colors inline-flex items-center ${
+                className={`min-h-[44px] px-3 py-1.5 rounded-lg font-mono text-xs font-bold border transition-colors inline-flex items-center ${
                   mId === moduleId
                     ? "bg-[#0F766E] text-[#FFFFFF] border-[#0F766E]"
                     : "bg-[#FFFFFF] text-[#475569] border-[#CBD5E1] hover:border-[#0F766E] hover:text-[#0F766E]"
@@ -416,6 +471,16 @@ export const FinalCharterPage: React.FC<FinalCharterProps> = ({
                   A4
                 </span>
               </button>
+
+              {moduleId === 5 && (
+                <Link
+                  href={`/room/${encodedRoom}/custom`}
+                  className="w-full min-h-[48px] py-3 px-4 bg-[#ECFDF5] hover:bg-[#D1FAE5] text-[#065F46] border border-[#A7F3D0] rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+                >
+                  <PenLine className="w-4 h-4 text-[#065F46]" />
+                  <span>Kembali ke Bank Soal Kustom</span>
+                </Link>
+              )}
 
               {moduleId < 4 && (
                 <button

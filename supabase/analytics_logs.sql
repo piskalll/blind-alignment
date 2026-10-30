@@ -25,6 +25,11 @@ CREATE INDEX IF NOT EXISTS idx_analytics_logs_updated_at
 
 ALTER TABLE public.analytics_logs ENABLE ROW LEVEL SECURITY;
 
+-- Berikan hak akses level tabel PostgreSQL kepada role anon & authenticated
+-- (wajib dijalankan selain RLS policy agar PostgREST tidak menolak query dengan kode 42501).
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE ON TABLE public.analytics_logs TO anon, authenticated;
+
 -- Kebijakan akses agar aplikasi klien dapat mencatat (INSERT/UPDATE) log ruang terlacak
 -- dan API server Next.js dapat membaca data analitik tanpa menghapus riwayat.
 DROP POLICY IF EXISTS "Allow insert tracked analytics logs" ON public.analytics_logs;
@@ -48,3 +53,5 @@ CREATE POLICY "Allow read tracked analytics logs"
   FOR SELECT
   TO anon, authenticated
   USING (true);
+
+NOTIFY pgrst, 'reload schema';

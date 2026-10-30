@@ -2,7 +2,14 @@ import { supabase, isSupabaseConfigured } from "./supabase";
 import { matchScore } from "./scoring";
 import type { Answer, OptionKey, RoomState } from "./sessionStore";
 
-const RESERVED_TAGS = new Set(["DEMO", "000", "ADMIN", "NULL", "OFF"]);
+const RESERVED_TAGS = new Set([
+  "DEMO",
+  "000",
+  "ADMIN",
+  "NULL",
+  "OFF",
+  "PUBLIK",
+]);
 
 /**
  * Normalizes a campaign/cohort tag from `?track=...` into an uppercase alphanumeric label (2-10 chars).
@@ -35,15 +42,21 @@ export const generateTrackedRoomCode = (trackTag: string): string => {
 };
 
 /**
- * Extracts the tracking tag from a room code if and only if the room belongs to a tracked cohort.
- * Standard public rooms (`VWS-482`) return `null` so their data is never logged to `analytics_logs`.
+ * Extracts the analytics category tag from a room code.
+ * Campaign rooms (`VWS-UJI-482`) use their prefix (`UJI`), allowlisted rooms use `CUSTOM`,
+ * and standard public rooms (`VWS-482`) are logged anonymously under `PUBLIK`.
+ * Demo/placeholder codes (`VWS-DEMO`, `VWS-000`) return `null` and are ignored.
  */
 export const extractTrackTagFromCode = (
   code: string | null | undefined
 ): string | null => {
   if (!code) return null;
   const normalized = code.trim().toUpperCase();
-  if (normalized === "VWS-DEMO" || normalized === "VWS-000") {
+  if (
+    !normalized.startsWith("VWS-") ||
+    normalized === "VWS-DEMO" ||
+    normalized === "VWS-000"
+  ) {
     return null;
   }
 
@@ -66,6 +79,10 @@ export const extractTrackTagFromCode = (
     }
   }
 
+  if (/^VWS-[A-Z0-9]{2,12}$/.test(normalized)) {
+    return "PUBLIK";
+  }
+
   return null;
 };
 
@@ -82,7 +99,8 @@ export const maskParticipantName = (
 };
 
 /**
- * Extracts strictly the A/B/C option keys, discarding personal notes and slider amounts.
+ * Extracts strictly the A/B/C option keys for standard curriculum scenarios (IDs 1..40),
+ * discarding personal notes, slider amounts, custom questions, and open-ended essays.
  */
 export const sanitizeChoicesOnly = (
   answers: Record<number, Answer> | undefined
@@ -91,9 +109,11 @@ export const sanitizeChoicesOnly = (
   if (!answers) return result;
 
   for (const [key, value] of Object.entries(answers)) {
+    const numId = Number(key);
+    if (!Number.isInteger(numId) || numId < 1 || numId > 40) continue;
     const choice = value?.choice;
     if (choice === "A" || choice === "B" || choice === "C") {
-      result[String(key)] = choice;
+      result[String(numId)] = choice;
     }
   }
   return result;
@@ -142,7 +162,7 @@ const normalizeModuleList = (
   legacyLocked?: boolean
 ): number[] => {
   const base = Array.isArray(modules)
-    ? modules.filter((m) => [1, 2, 3, 4].includes(Number(m))).map(Number)
+    ? modules.filter((m) => [1, 2, 3, 4, 5].includes(Number(m))).map(Number)
     : [];
   if (legacyLocked && !base.includes(1)) {
     base.push(1);
@@ -151,8 +171,8 @@ const normalizeModuleList = (
 };
 
 /**
- * Permanently upserts privacy-safe analytics data for tracked rooms (`VWS-<TAG>-<NNN>`).
- * Regular public rooms exit immediately with zero network traffic.
+ * Permanently upserts privacy-safe analytics data for all real rooms (`#PUBLIK` and `#<TAG>`),
+ * ignoring demo/placeholder rooms (`VWS-DEMO`, `VWS-000`).
  */
 export const syncAnalyticsLog = async (room: RoomState): Promise<void> => {
   const normalizedCode = (room?.code || "").trim().toUpperCase();

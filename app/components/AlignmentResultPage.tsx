@@ -8,14 +8,16 @@ import {
   AlertTriangle,
   X,
   CheckCircle2,
-  Scale,
   FileSignature,
   Lock,
   SlidersHorizontal,
+  BookOpen,
+  PenLine,
+  Plus,
 } from "lucide-react";
-import { useRoom } from "../lib/sessionStore";
+import { isScenarioAnswered, useRoom } from "../lib/sessionStore";
 import { computeAlignment } from "../lib/scoring";
-import { SCENARIOS, MODULES } from "../data/scenarios";
+import { SCENARIOS, getModuleMeta } from "../data/scenarios";
 import { AlignmentDonutVisual } from "./VisualIllustrations";
 
 interface AlignmentResultProps {
@@ -41,16 +43,35 @@ export const AlignmentResultPage: React.FC<AlignmentResultProps> = ({
     partnerName,
     me,
     partnerAnswers,
+    customScenarios,
+    isBothLocked,
     saveCompromise,
   } = useRoom();
 
   const roomCode = room?.code || "VWS-000";
   const encodedRoom = encodeURIComponent(roomCode);
-  const currentModule = MODULES.find((m) => m.id === moduleId) || MODULES[0];
+  const currentModule = getModuleMeta(moduleId);
+
   const moduleScenarios = useMemo(
-    () => SCENARIOS.filter((s) => s.moduleId === moduleId),
-    [moduleId]
+    () =>
+      moduleId === 5
+        ? customScenarios
+        : SCENARIOS.filter((s) => s.moduleId === moduleId),
+    [moduleId, customScenarios]
   );
+
+  const allLookupScenarios = useMemo(
+    () => [...SCENARIOS, ...customScenarios],
+    [customScenarios]
+  );
+
+  const getScenarioBadgeLabel = (scenarioId: number) => {
+    if (scenarioId >= 1001) {
+      const idx = customScenarios.findIndex((s) => s.id === scenarioId);
+      return idx !== -1 ? `Kustom #${idx + 1}` : `Kustom #${scenarioId}`;
+    }
+    return `Skenario #${scenarioId}`;
+  };
 
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedScenarioForModal, setSelectedScenarioForModal] =
@@ -78,28 +99,45 @@ export const AlignmentResultPage: React.FC<AlignmentResultProps> = ({
 
   const myAnsweredCount = useMemo(() => {
     if (!me?.answers) return 0;
-    return moduleScenarios.filter((s) => me.answers[s.id]?.choice !== undefined)
-      .length;
+    return moduleScenarios.filter((s) =>
+      isScenarioAnswered(s, me.answers[s.id])
+    ).length;
   }, [me?.answers, moduleScenarios]);
 
   const partnerAnsweredCount = useMemo(() => {
     if (!partnerAnswers) return 0;
-    return moduleScenarios.filter(
-      (s) => partnerAnswers[s.id]?.choice !== undefined
+    return moduleScenarios.filter((s) =>
+      isScenarioAnswered(s, partnerAnswers[s.id])
     ).length;
   }, [partnerAnswers, moduleScenarios]);
 
-  const hasBothAnswers = myAnsweredCount > 0 && partnerAnsweredCount > 0;
+  const hasBothAnswers =
+    moduleScenarios.length > 0 &&
+    (moduleId === 5
+      ? isBothLocked(5)
+      : myAnsweredCount > 0 && partnerAnsweredCount > 0);
 
   const alignment = useMemo(() => {
     if (!me?.answers || !partnerAnswers || !hasBothAnswers) {
       return null;
     }
-    return computeAlignment(me.answers, partnerAnswers, moduleId);
-  }, [me?.answers, partnerAnswers, hasBothAnswers, moduleId]);
+    return computeAlignment(
+      me.answers,
+      partnerAnswers,
+      moduleId,
+      moduleId === 5 ? customScenarios : undefined
+    );
+  }, [
+    me?.answers,
+    partnerAnswers,
+    hasBothAnswers,
+    moduleId,
+    customScenarios,
+  ]);
 
-  const overallScore = alignment ? alignment.overall : 0;
+  const overallScore = alignment ? alignment.overall : null;
   const categories = alignment ? alignment.byCategory : {};
+  const essayScenarios = alignment ? alignment.essayScenarios : [];
 
   const criticalScenarios = alignment
     ? alignment.results.filter((r) => r.critical)
@@ -123,6 +161,10 @@ export const AlignmentResultPage: React.FC<AlignmentResultProps> = ({
     setModalOpen(true);
   };
 
+  const modalScenario = allLookupScenarios.find(
+    (s) => s.id === selectedScenarioForModal
+  );
+
   return (
     <div className="min-h-screen bg-[#F8FAF7] text-[#1E293B] flex flex-col relative">
       <AppHeader
@@ -130,15 +172,54 @@ export const AlignmentResultPage: React.FC<AlignmentResultProps> = ({
         moduleId={moduleId}
         progressText={
           hasBothAnswers
-            ? `Modul ${moduleId}: Skor Keselarasan ${overallScore}%`
-            : `Modul ${moduleId}: Menunggu Kelengkapan Jawaban`
+            ? overallScore !== null
+              ? `Modul ${moduleId}: Skor Keselarasan ${overallScore}%`
+              : `Modul ${moduleId}: ${essayScenarios.length} Refleksi Esai Terbuka`
+            : `Modul ${moduleId}: Menunggu Kelengkapan Segel`
         }
         isEncrypted={true}
         userNames={`${myName || "Anda"} & ${partnerName || "Pasangan"}`}
       />
 
       <main className="max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 space-y-8">
-        {!hasBothAnswers ? (
+        {moduleId === 5 && moduleScenarios.length === 0 ? (
+          <div className="bg-[#FFFFFF] rounded-xl p-6 sm:p-10 border border-[#CBD5E1] space-y-5">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-[#F0FDFA] border border-[#99F6E4] text-xs font-mono font-bold text-[#0F766E]">
+              <PenLine className="w-3.5 h-3.5" />
+              <span>BANK SOAL KUSTOM KOSONG · MODUL 05</span>
+            </div>
+
+            <div className="space-y-2 max-w-2xl">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1E293B] tracking-tight">
+                Belum ada pertanyaan kustom untuk dibandingkan di ruang{" "}
+                {roomCode}
+              </h1>
+              <p className="text-sm sm:text-base text-[#475569] leading-relaxed">
+                Buat minimal 1 pertanyaan kustom bersama{" "}
+                <strong>{partnerName || "Pasangan"}</strong> pada Studio Soal
+                Kustom, lalu jawab dan kunci segel masing-masing untuk membuka
+                perbandingan.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 pt-2">
+              <Link
+                href={`/room/${encodedRoom}/custom`}
+                className="min-h-[48px] px-5 py-3 rounded-lg bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] text-xs sm:text-sm font-bold inline-flex items-center gap-2 transition-colors"
+              >
+                <Plus className="w-4 h-4 shrink-0" />
+                <span>Buat Pertanyaan Kustom Sekarang</span>
+              </Link>
+              <button
+                type="button"
+                onClick={onBackToDashboard}
+                className="min-h-[48px] px-4 py-3 rounded-lg border border-[#CBD5E1] bg-[#FFFFFF] hover:bg-[#F1F5F9] text-[#1E293B] text-xs sm:text-sm font-bold transition-colors cursor-pointer"
+              >
+                Kembali ke Dashboard
+              </button>
+            </div>
+          </div>
+        ) : !hasBothAnswers ? (
           /* Honest Empty / Unrevealed State (R-17 & R-27) */
           <div className="bg-[#FFFFFF] rounded-xl p-6 sm:p-10 border border-[#CBD5E1] space-y-6">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-[#FFFBEB] border border-[#FDE68A] text-xs font-mono font-bold text-[#92400E]">
@@ -148,18 +229,18 @@ export const AlignmentResultPage: React.FC<AlignmentResultProps> = ({
 
             <div className="space-y-2 max-w-2xl">
               <h1 className="text-2xl sm:text-3xl font-extrabold text-[#1E293B] tracking-tight">
-                Perbandingan jawaban Modul {moduleId} membutuhkan jawaban dari
-                kedua pihak
+                Perbandingan jawaban Modul {moduleId} membutuhkan segel kunci
+                dari kedua pihak
               </h1>
               <p className="text-sm sm:text-base text-[#475569] leading-relaxed">
                 Saat ini <strong>{myName || "Anda"}</strong> telah menjawab{" "}
                 <span className="font-mono font-bold text-[#1E293B]">
-                  {myAnsweredCount}/10
+                  {myAnsweredCount}/{moduleScenarios.length}
                 </span>{" "}
                 skenario, sedangkan{" "}
                 <strong>{partnerName || "Pasangan"}</strong> telah menjawab{" "}
                 <span className="font-mono font-bold text-[#1E293B]">
-                  {partnerAnsweredCount}/10
+                  {partnerAnsweredCount}/{moduleScenarios.length}
                 </span>{" "}
                 skenario pada <em>{currentModule.title}</em>.
               </p>
@@ -171,8 +252,21 @@ export const AlignmentResultPage: React.FC<AlignmentResultProps> = ({
                 className="min-h-[48px] px-5 py-3 rounded-lg bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] text-xs sm:text-sm font-bold inline-flex items-center gap-2 transition-colors"
               >
                 <SlidersHorizontal className="w-4 h-4" />
-                <span>Isi 10 Skenario Modul {moduleId}</span>
+                <span>
+                  Isi &amp; Kunci {moduleScenarios.length} Skenario Modul{" "}
+                  {moduleId}
+                </span>
               </Link>
+
+              {moduleId === 5 && (
+                <Link
+                  href={`/room/${encodedRoom}/custom`}
+                  className="min-h-[48px] px-4 py-3 rounded-lg border border-[#0F766E] bg-[#F0FDFA] hover:bg-[#ECFDF5] text-[#0F766E] text-xs sm:text-sm font-bold inline-flex items-center gap-2 transition-colors"
+                >
+                  <PenLine className="w-4 h-4 shrink-0" />
+                  <span>Kelola Bank Soal Kustom</span>
+                </Link>
+              )}
 
               <button
                 type="button"
@@ -187,8 +281,19 @@ export const AlignmentResultPage: React.FC<AlignmentResultProps> = ({
           <>
             {/* Top Header & Visual Radial Score Ledger */}
             <div className="bg-[#FFFFFF] rounded-xl p-6 sm:p-8 border border-[#CBD5E1]">
-              <div className="text-xs font-mono font-bold tracking-wider text-[#0F766E] uppercase mb-1">
-                PEMBUKAAN SEGEL SERENTAK · MODUL 0{moduleId}
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+                <div className="text-xs font-mono font-bold tracking-wider text-[#0F766E] uppercase">
+                  PEMBUKAAN SEGEL SERENTAK · MODUL 0{moduleId}
+                </div>
+                {moduleId === 5 && (
+                  <Link
+                    href={`/room/${encodedRoom}/custom`}
+                    className="min-h-[38px] px-3 py-1.5 rounded-lg border border-[#CBD5E1] bg-[#F8FAF7] hover:border-[#0F766E] text-xs font-bold text-[#0F766E] inline-flex items-center gap-1.5"
+                  >
+                    <PenLine className="w-3.5 h-3.5 shrink-0" />
+                    <span>Buka Bank Soal Kustom</span>
+                  </Link>
+                )}
               </div>
 
               <div className="pb-6 border-b border-[#E2E8F0]">
@@ -202,63 +307,109 @@ export const AlignmentResultPage: React.FC<AlignmentResultProps> = ({
                 </p>
               </div>
 
-              {/* Category Breakdown Grid */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center pt-6">
-                {/* Radial Donut Visual Box */}
-                <div className="lg:col-span-5 space-y-3">
-                  <AlignmentDonutVisual
-                    score={overallScore}
-                    alignedCount={alignedScenarios.length}
-                    conflictCount={criticalScenarios.length}
-                  />
-                  <p className="text-xs text-[#475569] leading-relaxed">
-                    {criticalScenarios.length > 0
-                      ? `Terdapat ${criticalScenarios.length} topik berbeda. Catat kompromi di bawah sebelum mengesahkan Piagam.`
-                      : "Seluruh 10 skenario telah selaras dan siap disahkan di Piagam."}
-                  </p>
-                </div>
+              {overallScore !== null ? (
+                /* Category Breakdown Grid when >= 1 A/B/C scenario exists */
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center pt-6">
+                  {/* Radial Donut Visual Box */}
+                  <div className="lg:col-span-5 space-y-3">
+                    <AlignmentDonutVisual
+                      score={overallScore}
+                      alignedCount={alignedScenarios.length}
+                      conflictCount={criticalScenarios.length}
+                    />
+                    <p className="text-xs text-[#475569] leading-relaxed">
+                      {criticalScenarios.length > 0
+                        ? `Terdapat ${criticalScenarios.length} topik pilihan A/B/C yang berbeda. Catat kompromi di bawah sebelum mengesahkan Piagam.`
+                        : `Seluruh ${alignedScenarios.length} skenario pilihan A/B/C telah selaras dan siap disahkan di Piagam.`}
+                      {essayScenarios.length > 0 &&
+                        ` Ditambah ${essayScenarios.length} topik esai terbuka di bawah untuk didiskusikan berdua.`}
+                    </p>
+                  </div>
 
-                {/* Pillar Breakdown list */}
-                <div className="lg:col-span-7 space-y-4">
-                  <h2 className="text-xs font-mono font-bold tracking-wider text-[#1E293B] uppercase">
-                    Rincian Kecocokan per Kategori Topik
-                  </h2>
+                  {/* Pillar Breakdown list */}
+                  <div className="lg:col-span-7 space-y-4">
+                    <h2 className="text-xs font-mono font-bold tracking-wider text-[#1E293B] uppercase">
+                      Rincian Kecocokan per Kategori Topik
+                    </h2>
 
-                  {Object.entries(categories).map(([category, score]) => {
-                    const barColor =
-                      score >= 70
-                        ? "bg-[#0F766E]"
-                        : score >= 50
-                        ? "bg-[#B45309]"
-                        : "bg-[#B91C1C]";
-                    const textColor =
-                      score >= 70
-                        ? "text-[#0F766E]"
-                        : score >= 50
-                        ? "text-[#92400E]"
-                        : "text-[#991B1B]";
+                    {Object.entries(categories).map(([category, score]) => {
+                      const barColor =
+                        score >= 70
+                          ? "bg-[#0F766E]"
+                          : score >= 50
+                          ? "bg-[#B45309]"
+                          : "bg-[#B91C1C]";
+                      const textColor =
+                        score >= 70
+                          ? "text-[#0F766E]"
+                          : score >= 50
+                          ? "text-[#92400E]"
+                          : "text-[#991B1B]";
 
-                    return (
-                      <div key={category}>
-                        <div className="flex justify-between items-center text-xs font-bold mb-1.5">
-                          <span className="text-[#1E293B]">{category}</span>
-                          <span
-                            className={`${textColor} font-mono tabular-nums`}
-                          >
-                            {score}% Selaras
-                          </span>
+                      return (
+                        <div key={category}>
+                          <div className="flex justify-between items-center text-xs font-bold mb-1.5">
+                            <span className="text-[#1E293B]">{category}</span>
+                            <span
+                              className={`${textColor} font-mono tabular-nums`}
+                            >
+                              {score}% Selaras
+                            </span>
+                          </div>
+                          <div className="w-full bg-[#E2E8F0] h-2.5 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full ${barColor} transition-all duration-300`}
+                              style={{ width: `${score}%` }}
+                            />
+                          </div>
                         </div>
-                        <div className="w-full bg-[#E2E8F0] h-2.5 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full ${barColor} transition-all duration-300`}
-                            style={{ width: `${score}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                /* Honest Open-Reflection Summary when 100% of custom questions are Essay (R-17 & C-5) */
+                <div className="pt-6 grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+                  <div className="lg:col-span-7 bg-[#F0FDFA] border border-[#99F6E4] rounded-xl p-5 space-y-2">
+                    <div className="inline-flex items-center gap-2 font-mono text-xs font-bold uppercase tracking-wider text-[#0F766E]">
+                      <BookOpen className="w-4 h-4 shrink-0" />
+                      <span>MODE REFLEKSI ESAI TERBUKA</span>
+                    </div>
+                    <h2 className="text-base sm:text-lg font-extrabold text-[#1E293B]">
+                      Seluruh {essayScenarios.length} Topik Berupa Esai Terbuka
+                    </h2>
+                    <p className="text-xs sm:text-sm text-[#475569] leading-relaxed">
+                      Pertanyaan esai tidak diberi angka persentase kecocokan
+                      buatan agar makna tulisan kalian tetap utuh. Baca jawaban
+                      berdampingan di bawah lalu rumuskan kesepakatan tertulis
+                      ke dalam Piagam Pasal V.
+                    </p>
+                  </div>
+                  <div className="lg:col-span-5 bg-[#F8FAF7] border border-[#CBD5E1] rounded-xl p-5 grid grid-cols-2 gap-4 text-center divide-x divide-[#CBD5E1]">
+                    <div>
+                      <span className="block font-mono text-[11px] font-bold uppercase text-[#475569]">
+                        Topik Esai Terbuka
+                      </span>
+                      <span className="font-mono text-2xl font-extrabold text-[#1E293B] tabular-nums">
+                        {essayScenarios.length}
+                      </span>
+                    </div>
+                    <div className="pl-4">
+                      <span className="block font-mono text-[11px] font-bold uppercase text-[#0F766E]">
+                        Pasal Tercatat
+                      </span>
+                      <span className="font-mono text-2xl font-extrabold text-[#0F766E] tabular-nums">
+                        {
+                          essayScenarios.filter((sc) =>
+                            Boolean(getExistingCompromise(sc.id))
+                          ).length
+                        }
+                        /{essayScenarios.length}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Where You Differ Section (Conflicts) */}
@@ -315,7 +466,8 @@ export const AlignmentResultPage: React.FC<AlignmentResultProps> = ({
                             {savedComp ? "✓" : "!"}
                           </span>
                           <span className="text-sm sm:text-base font-bold text-[#1E293B] truncate">
-                            Skenario #{scenario.id} · {scenario.title}
+                            {getScenarioBadgeLabel(scenario.id)} ·{" "}
+                            {scenario.title}
                           </span>
                         </div>
                         <div className="flex items-center gap-2.5 shrink-0">
@@ -435,42 +587,167 @@ export const AlignmentResultPage: React.FC<AlignmentResultProps> = ({
               </section>
             )}
 
-            {/* Aligned Scenarios List */}
-            <section className="space-y-4">
-              <h2 className="text-lg font-extrabold text-[#1E293B]">
-                Topik yang Sudah Selaras ({alignedScenarios.length} Skenario)
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {alignedScenarios.map(({ scenario, score }) => {
+            {/* Open Essay Side-by-Side Comparison Section */}
+            {essayScenarios.length > 0 && (
+              <section className="space-y-4">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="w-5 h-5 text-[#0F766E]" />
+                    <h2 className="text-lg font-extrabold text-[#1E293B]">
+                      Perbandingan Jawaban Esai Terbuka ({essayScenarios.length}{" "}
+                      Topik)
+                    </h2>
+                  </div>
+                  <span className="text-xs text-[#475569] font-medium">
+                    Baca pandangan masing-masing lalu catat kesepakatan untuk
+                    Piagam Pasal V
+                  </span>
+                </div>
+
+                {essayScenarios.map((scenario) => {
                   const myAns = me?.answers[scenario.id];
-                  const myOpt = scenario.options.find(
-                    (o) => o.key === myAns?.choice
-                  );
+                  const partnerAns = partnerAnswers?.[scenario.id];
+                  const savedComp = getExistingCompromise(scenario.id);
+
                   return (
                     <div
                       key={scenario.id}
-                      className="bg-[#FFFFFF] p-4 rounded-xl border border-[#CBD5E1] flex items-start justify-between gap-3"
+                      className={`bg-[#FFFFFF] rounded-xl border-2 overflow-hidden p-5 sm:p-6 space-y-5 ${
+                        savedComp ? "border-[#0F766E]" : "border-[#CBD5E1]"
+                      }`}
                     >
-                      <div className="flex items-start gap-2.5">
-                        <CheckCircle2 className="w-4 h-4 text-[#0F766E] shrink-0 mt-0.5" />
-                        <div>
-                          <div className="text-xs sm:text-sm font-bold text-[#1E293B]">
-                            #{scenario.id}: {scenario.title}
+                      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-[#E2E8F0] pb-4">
+                        <div className="space-y-1">
+                          <div className="flex items-center flex-wrap gap-2">
+                            <span className="font-mono text-xs font-bold px-2.5 py-0.5 rounded bg-[#F0FDFA] text-[#0F766E] border border-[#99F6E4]">
+                              {getScenarioBadgeLabel(scenario.id)} · Esai
+                              Terbuka
+                            </span>
+                            <span className="text-xs font-bold px-2.5 py-0.5 rounded bg-[#FFFBEB] text-[#92400E] border border-[#FDE68A]">
+                              {scenario.categoryLabel}
+                            </span>
                           </div>
-                          <div className="text-xs text-[#475569] mt-0.5">
-                            Opsi {myAns?.choice || "A"}:{" "}
-                            {myOpt?.text || "Selaras"}
+                          <h3 className="text-base sm:text-lg font-extrabold text-[#1E293B]">
+                            {scenario.title}
+                          </h3>
+                          {scenario.description && (
+                            <p className="text-xs sm:text-sm text-[#475569]">
+                              {scenario.description}
+                            </p>
+                          )}
+                        </div>
+
+                        {savedComp && (
+                          <span className="text-xs font-bold px-2.5 py-1 rounded bg-[#ECFDF5] text-[#065F46] border border-[#A7F3D0] shrink-0">
+                            Pasal Kesepakatan Tercatat
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="bg-[#F8FAF7] p-4 sm:p-5 rounded-xl border border-[#CBD5E1] space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-full bg-[#ECFDF5] text-[#065F46] border border-[#A7F3D0] flex items-center justify-center text-xs font-bold">
+                              {myName?.[0]?.toUpperCase() || "A"}
+                            </span>
+                            <span className="text-xs font-bold uppercase tracking-wider text-[#475569]">
+                              Jawaban Esai {myName || "Anda"}
+                            </span>
                           </div>
+                          <p className="text-xs sm:text-sm text-[#1E293B] font-medium leading-relaxed whitespace-pre-line">
+                            {myAns?.essayText || "Belum ada teks jawaban."}
+                          </p>
+                        </div>
+
+                        <div className="bg-[#F8FAF7] p-4 sm:p-5 rounded-xl border border-[#CBD5E1] space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-full bg-[#0F766E] text-[#FFFFFF] flex items-center justify-center text-xs font-bold">
+                              {partnerName?.[0]?.toUpperCase() || "P"}
+                            </span>
+                            <span className="text-xs font-bold uppercase tracking-wider text-[#0F766E]">
+                              Jawaban Esai {partnerName || "Pasangan"}
+                            </span>
+                          </div>
+                          <p className="text-xs sm:text-sm text-[#1E293B] font-medium leading-relaxed whitespace-pre-line">
+                            {partnerAns?.essayText || "Belum ada teks jawaban."}
+                          </p>
                         </div>
                       </div>
-                      <span className="text-xs font-mono font-bold text-[#065F46] px-2 py-0.5 rounded bg-[#ECFDF5] border border-[#A7F3D0] shrink-0 tabular-nums">
-                        {score}%
-                      </span>
+
+                      <div className="bg-[#F8FAF7] p-4 rounded-xl border border-[#CBD5E1] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <span className="text-xs font-mono font-bold uppercase tracking-wider text-[#0F766E] block">
+                            {savedComp
+                              ? "BUNYI KESEPAKATAN TERTULIS"
+                              : "SIMPULAN DISKUSI BERSAMA"}
+                          </span>
+                          {savedComp ? (
+                            <p className="text-xs sm:text-sm font-semibold text-[#1E293B] leading-relaxed">
+                              &ldquo;{savedComp.agreementText}&rdquo;
+                            </p>
+                          ) : (
+                            <p className="text-xs text-[#475569]">
+                              Rangkum titik temu dari kedua jawaban esai ini
+                              agar tercantum pada Piagam Pasal V.
+                            </p>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => openCompromiseModal(scenario.id)}
+                          className="min-h-[44px] px-4 py-2 bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] rounded-lg text-xs font-bold transition-colors cursor-pointer shrink-0"
+                        >
+                          {savedComp
+                            ? "Ubah Pasal Kesepakatan"
+                            : "Rumuskan Kesepakatan ke Piagam"}
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
-              </div>
-            </section>
+              </section>
+            )}
+
+            {/* Aligned Scenarios List */}
+            {alignedScenarios.length > 0 && (
+              <section className="space-y-4">
+                <h2 className="text-lg font-extrabold text-[#1E293B]">
+                  Topik yang Sudah Selaras ({alignedScenarios.length} Skenario)
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {alignedScenarios.map(({ scenario, score }) => {
+                    const myAns = me?.answers[scenario.id];
+                    const myOpt = scenario.options.find(
+                      (o) => o.key === myAns?.choice
+                    );
+                    return (
+                      <div
+                        key={scenario.id}
+                        className="bg-[#FFFFFF] p-4 rounded-xl border border-[#CBD5E1] flex items-start justify-between gap-3"
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <CheckCircle2 className="w-4 h-4 text-[#0F766E] shrink-0 mt-0.5" />
+                          <div>
+                            <div className="text-xs sm:text-sm font-bold text-[#1E293B]">
+                              {getScenarioBadgeLabel(scenario.id)}:{" "}
+                              {scenario.title}
+                            </div>
+                            <div className="text-xs text-[#475569] mt-0.5">
+                              Opsi {myAns?.choice || "A"}:{" "}
+                              {myOpt?.text || "Selaras"}
+                            </div>
+                          </div>
+                        </div>
+                        <span className="text-xs font-mono font-bold text-[#065F46] px-2 py-0.5 rounded bg-[#ECFDF5] border border-[#A7F3D0] shrink-0 tabular-nums">
+                          {score}%
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
 
             {/* Bottom Proceed Bar */}
             <div className="flex flex-wrap items-center justify-between gap-4 pt-6 border-t border-[#CBD5E1]">
@@ -506,14 +783,15 @@ export const AlignmentResultPage: React.FC<AlignmentResultProps> = ({
             <div className="flex items-start justify-between border-b border-[#E2E8F0] pb-4">
               <div>
                 <span className="text-xs font-mono uppercase tracking-wider text-[#0F766E] font-bold block">
-                  RUMUSAN KOMPROMI · SKENARIO #{selectedScenarioForModal}
+                  RUMUSAN KESEPAKATAN ·{" "}
+                  {getScenarioBadgeLabel(selectedScenarioForModal)}
                 </span>
                 <h3
                   id="compromise-modal-title"
                   className="text-lg font-extrabold text-[#1E293B] mt-0.5"
                 >
-                  {SCENARIOS.find((s) => s.id === selectedScenarioForModal)
-                    ?.title || `Skenario #${selectedScenarioForModal}`}
+                  {modalScenario?.title ||
+                    getScenarioBadgeLabel(selectedScenarioForModal)}
                 </h3>
               </div>
               <button
@@ -594,12 +872,11 @@ export const AlignmentResultPage: React.FC<AlignmentResultProps> = ({
                   const text =
                     customAgreement.trim() ||
                     COMPROMISE_TEMPLATES[selectedSuggestion];
-                  const sc = SCENARIOS.find(
-                    (s) => s.id === selectedScenarioForModal
-                  );
                   saveCompromise({
                     scenarioId: selectedScenarioForModal,
-                    title: sc?.title || `Skenario #${selectedScenarioForModal}`,
+                    title:
+                      modalScenario?.title ||
+                      getScenarioBadgeLabel(selectedScenarioForModal),
                     agreementText: text,
                   });
                   setModalOpen(false);

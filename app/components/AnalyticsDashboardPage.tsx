@@ -52,6 +52,9 @@ CREATE INDEX IF NOT EXISTS idx_analytics_logs_updated_at
 
 ALTER TABLE public.analytics_logs ENABLE ROW LEVEL SECURITY;
 
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE ON TABLE public.analytics_logs TO anon, authenticated;
+
 DROP POLICY IF EXISTS "Allow insert tracked analytics logs" ON public.analytics_logs;
 CREATE POLICY "Allow insert tracked analytics logs"
   ON public.analytics_logs FOR INSERT TO anon, authenticated WITH CHECK (true);
@@ -60,7 +63,13 @@ CREATE POLICY "Allow update tracked analytics logs"
   ON public.analytics_logs FOR UPDATE TO anon, authenticated USING (true) WITH CHECK (true);
 DROP POLICY IF EXISTS "Allow read tracked analytics logs" ON public.analytics_logs;
 CREATE POLICY "Allow read tracked analytics logs"
-  ON public.analytics_logs FOR SELECT TO anon, authenticated USING (true);`;
+  ON public.analytics_logs FOR SELECT TO anon, authenticated USING (true);
+
+NOTIFY pgrst, 'reload schema';`;
+
+const SQL_GRANT_SNIPPET = `GRANT USAGE ON SCHEMA public TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE ON TABLE public.analytics_logs TO anon, authenticated;
+NOTIFY pgrst, 'reload schema';`;
 
 interface ModuleFunnelItem {
   moduleId: number;
@@ -102,6 +111,7 @@ interface TrackedSessionItem {
   hostLockedModules: number[];
   guestLockedModules: number[];
   completedModules: number[];
+  customQuestionCount?: number;
   alignmentScore: number | null;
   createdAt: string | null;
   updatedAt: string | null;
@@ -114,6 +124,7 @@ interface AnalyticsApiResponse {
   pinConfigured: boolean;
   supabaseConfigured: boolean;
   tableMissing?: boolean;
+  permissionDenied?: boolean;
   dbError?: string | null;
   selectedTag?: string;
   availableTags?: string[];
@@ -127,6 +138,12 @@ interface AnalyticsApiResponse {
     completedAllModulesRooms: number;
     averageAlignment: number | null;
     moduleFunnel: ModuleFunnelItem[];
+    customAdoption?: {
+      roomsWithCustomQuestions: number;
+      totalCustomQuestionsCreated: number;
+      bothLockedCustomRooms: number;
+      completedCustomRooms: number;
+    };
   };
   topConflictScenarios?: ScenarioStatItem[];
   scenarioStats?: ScenarioStatItem[];
@@ -308,7 +325,7 @@ export const AnalyticsDashboardPage: React.FC = () => {
             </Link>
             <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#F0FDFA] border border-[#99F6E4] font-mono text-xs font-bold text-[#0F766E]">
               <Database className="w-3.5 h-3.5 shrink-0" />
-              <span>ANALYTICS &amp; LOG TERLACAK</span>
+              <span>ANALYTICS &amp; LOG SESI</span>
             </span>
           </div>
 
@@ -374,7 +391,7 @@ export const AnalyticsDashboardPage: React.FC = () => {
           <div className="min-h-[50dvh] flex flex-col items-center justify-center gap-3 text-center">
             <Loader2 className="w-7 h-7 text-[#0F766E] animate-spin" />
             <p className="text-sm font-semibold text-[#475569]">
-              Memeriksa status akses dan memuat log ruang terlacak...
+              Memeriksa status akses dan memuat log analitik sesi...
             </p>
           </div>
         ) : fetchError ? (
@@ -443,9 +460,9 @@ export const AnalyticsDashboardPage: React.FC = () => {
                 Buka Panel Analytics
               </h1>
               <p className="text-xs sm:text-sm text-[#475569] leading-relaxed">
-                Masukkan PIN Rahasia Admin untuk meninjau jumlah pengguna ruang
-                terlacak, tingkat penyelesaian modul, dan distribusi pilihan
-                skenario secara anonim.
+                Masukkan PIN Rahasia Admin untuk meninjau total pengguna seluruh
+                web (#PUBLIK maupun batch khusus), tingkat penyelesaian modul,
+                dan distribusi pilihan skenario secara anonim.
               </p>
             </div>
 
@@ -563,6 +580,63 @@ export const AnalyticsDashboardPage: React.FC = () => {
               <span>Saya Sudah Menjalankan SQL, Cek Ulang Sekarang</span>
             </button>
           </div>
+        ) : data.permissionDenied ? (
+          <div className="max-w-3xl mx-auto bg-[#FFFFFF] border border-[#CBD5E1] rounded-2xl p-6 sm:p-8 space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="font-mono text-xs font-bold uppercase tracking-wider text-[#92400E]">
+                  IZIN TABEL POSTGRESQL DIPERLUKAN (KODE 42501)
+                </p>
+                <h1 className="text-xl sm:text-2xl font-extrabold text-[#1E293B] mt-0.5">
+                  Aktifkan Izin Akses <code className="font-mono">GRANT</code> pada Tabel <code className="font-mono">analytics_logs</code>
+                </h1>
+              </div>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(SQL_GRANT_SNIPPET);
+                    setCopiedSql(true);
+                    toast.success("Perintah GRANT SQL berhasil disalin.");
+                    window.setTimeout(() => setCopiedSql(false), 2500);
+                  } catch {
+                    toast.error("Gagal menyalin perintah SQL.");
+                  }
+                }}
+                className="min-h-[44px] px-4 py-2 rounded-lg bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] text-xs font-bold inline-flex items-center gap-2 cursor-pointer"
+              >
+                {copiedSql ? (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>Perintah GRANT Tersalin</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" />
+                    <span>Salin Perintah GRANT</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            <p className="text-sm text-[#475569] leading-relaxed">
+              Tabel <code className="font-mono font-bold text-[#1E293B]">public.analytics_logs</code> sudah ada, namun role API Supabase (<code className="font-mono font-bold text-[#1E293B]">anon</code> &amp; <code className="font-mono font-bold text-[#1E293B]">authenticated</code>) belum diberi izin tabel PostgreSQL. Jalankan 3 baris SQL berikut di <strong>Supabase Dashboard &gt; SQL Editor</strong>:
+            </p>
+
+            <pre className="p-4 rounded-xl bg-[#F8FAF7] border border-[#CBD5E1] overflow-x-auto font-mono text-xs text-[#1E293B] leading-relaxed">
+              {SQL_GRANT_SNIPPET}
+            </pre>
+
+            <button
+              type="button"
+              onClick={() => void loadAnalytics(selectedTag)}
+              className="min-h-[48px] px-5 py-3 rounded-lg border border-[#0F766E] bg-[#F0FDFA] hover:bg-[#ECFDF5] text-[#0F766E] text-xs font-bold inline-flex items-center gap-2 cursor-pointer"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>Sudah Dijalankan, Cek Ulang Sekarang</span>
+            </button>
+          </div>
         ) : data.dbError ? (
           <div
             role="alert"
@@ -583,9 +657,8 @@ export const AnalyticsDashboardPage: React.FC = () => {
         ) : (
           /* Authenticated Main Dashboard */
           <div className="space-y-10">
-            {/* Top Utility Bar: Link Generator + Cohort Batch Filter */}
             <section
-              aria-label="Pembuat Tautan Pelacakan dan Filter Batch"
+              aria-label="Pembuat Tautan Batch dan Filter Kategori"
               className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-2xl p-5 sm:p-6 space-y-5"
             >
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-end">
@@ -594,15 +667,17 @@ export const AnalyticsDashboardPage: React.FC = () => {
                     htmlFor="track-tag-generator"
                     className="block font-mono text-xs font-bold uppercase tracking-wider text-[#0F766E]"
                   >
-                    Pembuat Tautan Ruang Terlacak (Khusus Responden / Kelas)
+                    Pembuat Tautan Label Batch (Opsional untuk Kelas / Riset)
                   </label>
                   <p className="text-xs text-[#475569]">
-                    Bagikan tautan ini ke responden. Setiap pasangan akan
-                    mendapatkan kode unik berawalan{" "}
+                    Pengunjung umum otomatis tercatat pada{" "}
+                    <strong className="font-mono text-[#0F766E]">#PUBLIK</strong>.
+                    Gunakan tautan opsional ini bila ingin memisahkan kelompok
+                    tertentu ke kode{" "}
                     <strong className="font-mono text-[#1E293B]">
                       VWS-{cleanPreviewTag}-XXX
-                    </strong>{" "}
-                    yang otomatis terekam ke halaman ini.
+                    </strong>
+                    .
                   </p>
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 pt-1">
                     <div className="flex items-center rounded-lg border border-[#CBD5E1] focus-within:border-[#0F766E] bg-[#F8FAF7] px-3 min-h-[44px] sm:w-52">
@@ -634,7 +709,7 @@ export const AnalyticsDashboardPage: React.FC = () => {
                         <>
                           <Copy className="w-4 h-4" />
                           <span>
-                            Salin Link Responden (?track=
+                            Salin Link Batch (?track=
                             {cleanPreviewTag.toLowerCase()})
                           </span>
                         </>
@@ -645,7 +720,7 @@ export const AnalyticsDashboardPage: React.FC = () => {
 
                 <div className="lg:col-span-5 space-y-2">
                   <span className="block font-mono text-xs font-bold uppercase tracking-wider text-[#475569]">
-                    Filter Label Batch Terlacak
+                    Filter Kategori Sesi
                   </span>
                   <div className="flex flex-wrap gap-1.5">
                     <button
@@ -657,7 +732,7 @@ export const AnalyticsDashboardPage: React.FC = () => {
                           : "bg-[#F8FAF7] text-[#1E293B] border-[#CBD5E1] hover:border-[#0F766E]"
                       }`}
                     >
-                      SEMUA BATCH
+                      SEMUA SESI
                     </button>
                     {(data.availableTags || []).map((tag) => (
                       <button
@@ -678,22 +753,23 @@ export const AnalyticsDashboardPage: React.FC = () => {
               </div>
             </section>
 
-            {/* Empty State when 0 tracked rooms exist yet */}
             {(data.summary?.totalRooms || 0) === 0 ? (
               <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-2xl p-8 sm:p-12 text-center space-y-3">
                 <div className="w-12 h-12 rounded-xl bg-[#F0FDFA] border border-[#99F6E4] text-[#0F766E] flex items-center justify-center mx-auto">
                   <Users className="w-6 h-6" />
                 </div>
                 <h2 className="text-lg font-extrabold text-[#1E293B]">
-                  Belum Ada Riwayat pada Batch Ini
+                  Belum Ada Sesi Tercatat pada Kategori Ini
                 </h2>
                 <p className="text-xs sm:text-sm text-[#475569] max-w-md mx-auto leading-relaxed">
-                  Salin tautan pelacakan di atas (contoh:{" "}
+                  Setiap pengunjung yang membuat ruang di beranda otomatis
+                  terekam secara anonim pada{" "}
+                  <strong className="font-mono text-[#0F766E]">#PUBLIK</strong>.
+                  Anda juga dapat membagikan tautan opsional{" "}
                   <code className="font-mono font-bold text-[#0F766E]">
                     /?track={cleanPreviewTag.toLowerCase()}
-                  </code>
-                  ) lalu buat ruang baru untuk mulai merekam jumlah pengguna,
-                  penyelesaian modul, dan distribusi opsi A/B/C.
+                  </code>{" "}
+                  jika ingin memisahkan kelompok tertentu.
                 </p>
               </div>
             ) : (
@@ -713,7 +789,7 @@ export const AnalyticsDashboardPage: React.FC = () => {
                     <div className="lg:col-span-8 bg-[#FFFFFF] border-2 border-[#0F766E] rounded-2xl p-5 sm:p-6 grid grid-cols-1 sm:grid-cols-2 gap-6 divide-y sm:divide-y-0 sm:divide-x divide-[#E2E8F0]">
                       <div className="space-y-3 sm:pr-6">
                         <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-[#475569]">
-                          <span>Total Pengguna Terlacak</span>
+                          <span>Total Pengguna Tercatat</span>
                           <Users className="w-4 h-4 text-[#0F766E]" />
                         </div>
                         <div className="font-mono text-4xl font-extrabold text-[#1E293B] tabular-nums">
@@ -779,7 +855,7 @@ export const AnalyticsDashboardPage: React.FC = () => {
                       <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-xl p-4 flex items-center justify-between gap-3">
                         <div className="space-y-0.5">
                           <div className="text-xs font-bold uppercase tracking-wider text-[#475569]">
-                            Total Ruang Terlacak
+                            Total Ruang Tercatat
                           </div>
                           <p className="text-[11px] text-[#475569]">
                             Tersimpan permanen di log riwayat
@@ -854,6 +930,79 @@ export const AnalyticsDashboardPage: React.FC = () => {
                           </div>
                         );
                       })}
+                    </div>
+                  </div>
+
+                  {/* Privacy-Safe Custom Questions (MOD-05) Adoption Ledger */}
+                  <div className="bg-[#FFFFFF] border border-[#CBD5E1] rounded-2xl p-5 sm:p-6 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#0F766E] block">
+                          MOD-05 · ADOPSI PERTANYAAN KUSTOM PASANGAN
+                        </span>
+                        <h3 className="text-base font-extrabold text-[#1E293B]">
+                          Metrik penggunaan fitur soal buatan sendiri (tanpa
+                          menyimpan isi teks soal)
+                        </h3>
+                      </div>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#F0FDFA] border border-[#99F6E4] font-mono text-xs font-bold text-[#0F766E] shrink-0">
+                        <Lock className="w-3.5 h-3.5 shrink-0" />
+                        <span>TEKS SOAL &amp; ESAI PRIVAT</span>
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+                      <div className="p-4 rounded-xl bg-[#F8FAF7] border border-[#CBD5E1] space-y-1">
+                        <span className="block font-mono text-[11px] font-bold uppercase text-[#475569]">
+                          Ruang Memakai Kustom
+                        </span>
+                        <div className="font-mono text-2xl font-extrabold text-[#1E293B] tabular-nums">
+                          {data.summary?.customAdoption
+                            ?.roomsWithCustomQuestions || 0}
+                          <span className="text-xs font-sans font-semibold text-[#475569] ml-1.5">
+                            ruang
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="p-4 rounded-xl bg-[#F8FAF7] border border-[#CBD5E1] space-y-1">
+                        <span className="block font-mono text-[11px] font-bold uppercase text-[#475569]">
+                          Total Soal Dibuat
+                        </span>
+                        <div className="font-mono text-2xl font-extrabold text-[#1E293B] tabular-nums">
+                          {data.summary?.customAdoption
+                            ?.totalCustomQuestionsCreated || 0}
+                          <span className="text-xs font-sans font-semibold text-[#475569] ml-1.5">
+                            soal
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="p-4 rounded-xl bg-[#F8FAF7] border border-[#CBD5E1] space-y-1">
+                        <span className="block font-mono text-[11px] font-bold uppercase text-[#475569]">
+                          Segel MOD-05 Terkunci
+                        </span>
+                        <div className="font-mono text-2xl font-extrabold text-[#1E293B] tabular-nums">
+                          {data.summary?.customAdoption?.bothLockedCustomRooms ||
+                            0}
+                          <span className="text-xs font-sans font-semibold text-[#475569] ml-1.5">
+                            pasang
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="p-4 rounded-xl bg-[#F0FDFA] border border-[#99F6E4] space-y-1">
+                        <span className="block font-mono text-[11px] font-bold uppercase text-[#0F766E]">
+                          Piagam Pasal V Sah
+                        </span>
+                        <div className="font-mono text-2xl font-extrabold text-[#0F766E] tabular-nums">
+                          {data.summary?.customAdoption?.completedCustomRooms ||
+                            0}
+                          <span className="text-xs font-sans font-semibold text-[#475569] ml-1.5">
+                            ruang
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </section>
@@ -935,7 +1084,7 @@ export const AnalyticsDashboardPage: React.FC = () => {
                         </h3>
                         <p className="text-xs text-[#475569]">
                           Pilih modul untuk melihat kecenderungan jawaban seluruh
-                          responden terlacak.
+                          pengguna pada kategori terpilih.
                         </p>
                       </div>
 
@@ -1038,8 +1187,8 @@ export const AnalyticsDashboardPage: React.FC = () => {
                         03 / RIWAYAT SESI TERSAMAR (PRIVACY-SAFE)
                       </p>
                       <h2 className="text-xl sm:text-2xl font-extrabold text-[#1E293B]">
-                        Log ruang terlacak tanpa catatan pribadi &amp; tanda
-                        tangan
+                        Log sesi (#PUBLIK &amp; batch khusus) tanpa catatan
+                        pribadi maupun tanda tangan
                       </h2>
                     </div>
 
@@ -1116,11 +1265,28 @@ export const AnalyticsDashboardPage: React.FC = () => {
                                     </strong>
                                   </span>
                                   <span>
-                                    Modul Selesai:{" "}
+                                    Modul Inti:{" "}
                                     <strong className="font-mono text-[#0F766E]">
-                                      {sess.completedModules.length}/4
+                                      {
+                                        sess.completedModules.filter(
+                                          (m) => m >= 1 && m <= 4
+                                        ).length
+                                      }
+                                      /4
                                     </strong>
                                   </span>
+                                  {((sess.customQuestionCount || 0) > 0 ||
+                                    sess.completedModules.includes(5)) && (
+                                    <span>
+                                      Soal Kustom:{" "}
+                                      <strong className="font-mono text-[#0F766E]">
+                                        {sess.customQuestionCount || 0} soal
+                                        {sess.completedModules.includes(5)
+                                          ? " (Pasal V Sah)"
+                                          : ""}
+                                      </strong>
+                                    </span>
+                                  )}
                                   {sess.alignmentScore !== null && (
                                     <span>
                                       Skor Selaras:{" "}
