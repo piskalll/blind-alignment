@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import {
   Lock,
   BookOpen,
@@ -10,10 +11,11 @@ import {
   Check,
   ChevronDown,
   Scale,
+  PenLine,
 } from "lucide-react";
 import { AppHeader } from "./AppHeader";
-import { useRoom } from "../lib/sessionStore";
-import { SCENARIOS, MODULES } from "../data/scenarios";
+import { isScenarioAnswered, useRoom } from "../lib/sessionStore";
+import { SCENARIOS, getModuleMeta } from "../data/scenarios";
 import { VaultWaitingIllustration } from "./VisualIllustrations";
 
 interface WaitingRevealProps {
@@ -42,26 +44,39 @@ export const WaitingRevealPage: React.FC<WaitingRevealProps> = ({
   onBackToDashboard,
   moduleId = 1,
 }) => {
-  const { room, myName, partnerName, isBothLocked, role } = useRoom();
+  const {
+    room,
+    myName,
+    partnerName,
+    isBothLocked,
+    role,
+    customScenarios,
+  } = useRoom();
   const [openGuideIdx, setOpenGuideIdx] = useState<number | null>(0);
   const [copied, setCopied] = useState(false);
 
   const roomCode = room?.code || "VWS-000";
-  const currentModule = MODULES.find((m) => m.id === moduleId) || MODULES[0];
-  const isLockedForThisModule = isBothLocked(moduleId);
+  const encodedRoom = encodeURIComponent(roomCode);
+  const currentModule = getModuleMeta(moduleId);
+  const isLockedForThisModule =
+    (moduleId !== 5 || customScenarios.length > 0) && isBothLocked(moduleId);
 
   const partnerRole = role === "host" ? "guest" : "host";
-  const modScenarios = SCENARIOS.filter((s) => s.moduleId === moduleId);
+  const modScenarios =
+    moduleId === 5
+      ? customScenarios
+      : SCENARIOS.filter((s) => s.moduleId === moduleId);
+  const totalCount = modScenarios.length;
   const partnerAnswerCount = room
-    ? modScenarios.filter(
-        (s) => room[partnerRole]?.answers?.[s.id] !== undefined
+    ? modScenarios.filter((s) =>
+        isScenarioAnswered(s, room[partnerRole]?.answers?.[s.id])
       ).length
     : 0;
 
   const handleSendWhatsAppReminder = () => {
     const inviteLink = `${window.location.origin}/?room=${roomCode}&pin=${room?.passcode || ""}`;
     const text = encodeURIComponent(
-      `Hai ${partnerName || ""}! Aku sudah mengunci 10 jawaban untuk *Modul ${moduleId} (${currentModule.title})* di VowSync.\n\nYuk selesaikan bagianmu supaya segel Dual-Blind kita terbuka:\nKode Ruang: *${roomCode}*\nPIN: *${room?.passcode || ""}*\nTautan: ${inviteLink}`
+      `Hai ${partnerName || ""}! Aku sudah mengunci ${totalCount} jawaban untuk *Modul ${moduleId} (${currentModule.title})* di VowSync.\n\nYuk selesaikan bagianmu supaya segel Dual-Blind kita terbuka:\nKode Ruang: *${roomCode}*\nPIN: *${room?.passcode || ""}*\nTautan: ${inviteLink}`
     );
     window.open(`https://wa.me/?text=${text}`, "_blank");
   };
@@ -103,7 +118,8 @@ export const WaitingRevealPage: React.FC<WaitingRevealProps> = ({
                 <>
                   <Lock className="w-4 h-4 text-[#0F766E]" />
                   <span>
-                    SEGEL AKTIF · PROGRES PASANGAN: {partnerAnswerCount}/10
+                    SEGEL AKTIF · PROGRES PASANGAN: {partnerAnswerCount}/
+                    {totalCount}
                   </span>
                 </>
               )}
@@ -123,13 +139,14 @@ export const WaitingRevealPage: React.FC<WaitingRevealProps> = ({
             <p className="text-[#475569] text-xs sm:text-sm max-w-xl">
               {isLockedForThisModule
                 ? "Kedua kunci telah terverifikasi. Buka perbandingan jawaban sekarang."
-                : `Pilihan untuk "${currentModule.title}" tetap tertutup sampai kedua pihak mengunci 10 skenario.`}
+                : `Pilihan untuk "${currentModule.title}" tetap tertutup sampai kedua pihak mengunci ${totalCount} skenario.`}
             </p>
           </div>
 
           <VaultWaitingIllustration
             isUnlocked={isLockedForThisModule}
             partnerProgress={partnerAnswerCount}
+            totalCount={Math.max(1, totalCount)}
           />
 
           {/* Primary Actions */}
@@ -143,6 +160,16 @@ export const WaitingRevealPage: React.FC<WaitingRevealProps> = ({
                 <Scale className="w-4 h-4" />
                 <span>Buka Perbandingan Jawaban Sekarang</span>
               </button>
+            )}
+
+            {moduleId === 5 && (
+              <Link
+                href={`/room/${encodedRoom}/custom`}
+                className="min-h-[48px] px-4 py-3 border border-[#0F766E] bg-[#F0FDFA] hover:bg-[#ECFDF5] text-[#0F766E] font-bold rounded-lg text-xs sm:text-sm transition-colors inline-flex items-center gap-2"
+              >
+                <PenLine className="w-4 h-4 shrink-0" />
+                <span>Kelola Bank Soal Kustom</span>
+              </Link>
             )}
 
             <button
@@ -243,9 +270,7 @@ export const WaitingRevealPage: React.FC<WaitingRevealProps> = ({
                     <button
                       type="button"
                       aria-expanded={isOpen}
-                      onClick={() =>
-                        setOpenGuideIdx(isOpen ? null : idx)
-                      }
+                      onClick={() => setOpenGuideIdx(isOpen ? null : idx)}
                       className="w-full min-h-[44px] flex items-center justify-between gap-3 text-left text-xs sm:text-sm font-bold text-[#1E293B] hover:text-[#0F766E] transition-colors cursor-pointer"
                     >
                       <span>{guide.title}</span>

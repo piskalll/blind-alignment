@@ -16,6 +16,7 @@ import {
   Clock,
   Scale,
   FileSignature,
+  PenLine,
 } from "lucide-react";
 import { useTheme } from "../lib/sessionStore";
 import { BrandLogo } from "./BrandLogo";
@@ -55,7 +56,7 @@ export const AppHeader: React.FC<HeaderProps> = ({
 
   const queryMod = Number(searchParams?.get("module"));
   const activeModuleId =
-    propModuleId || (queryMod >= 1 && queryMod <= 4 ? queryMod : 1);
+    propModuleId || (queryMod >= 1 && queryMod <= 5 ? queryMod : 1);
 
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -76,13 +77,19 @@ export const AppHeader: React.FC<HeaderProps> = ({
           icon: LayoutGrid,
         },
         {
+          label: "Soal Kustom",
+          href: `/room/${encodedRoom}/custom`,
+          matchPath: `/room/${encodedRoom}/custom`,
+          icon: PenLine,
+        },
+        {
           label: "Pengantar",
           href: `/room/${encodedRoom}/intro?module=${activeModuleId}`,
           matchPath: `/room/${encodedRoom}/intro`,
           icon: BookOpen,
         },
         {
-          label: "10 Skenario",
+          label: activeModuleId === 5 ? "Jawab Kustom" : "10 Skenario",
           href: `/room/${encodedRoom}/dilemma?module=${activeModuleId}`,
           matchPath: `/room/${encodedRoom}/dilemma`,
           icon: SlidersHorizontal,
@@ -126,10 +133,18 @@ export const AppHeader: React.FC<HeaderProps> = ({
 
   const buildModuleSwitchHref = (targetMod: number) => {
     if (!pathname || !encodedRoom) return `/room/${encodedRoom}`;
-    if (pathname === `/room/${encodedRoom}`) {
-      return `/room/${encodedRoom}/intro?module=${targetMod}`;
+    const cleanPathname = pathname.replace(/\/$/, "");
+    if (cleanPathname === `/room/${encodedRoom}`) {
+      return targetMod === 5
+        ? `/room/${encodedRoom}/custom`
+        : `/room/${encodedRoom}/intro?module=${targetMod}`;
     }
-    return `${pathname}?module=${targetMod}`;
+    if (cleanPathname === `/room/${encodedRoom}/custom`) {
+      return targetMod === 5
+        ? `/room/${encodedRoom}/custom`
+        : `/room/${encodedRoom}/intro?module=${targetMod}`;
+    }
+    return `${cleanPathname}?module=${targetMod}`;
   };
 
   return (
@@ -277,13 +292,17 @@ export const AppHeader: React.FC<HeaderProps> = ({
               <span className="text-[11px] font-mono font-bold text-[#475569] mr-1 hidden lg:inline">
                 MODUL:
               </span>
-              {[1, 2, 3, 4].map((mId) => {
+              {[1, 2, 3, 4, 5].map((mId) => {
                 const isCurrentMod = mId === activeModuleId;
                 return (
                   <Link
                     key={mId}
                     href={buildModuleSwitchHref(mId)}
-                    title={`Buka Modul ${mId}`}
+                    title={
+                      mId === 5
+                        ? "Buka Modul 5 (Pertanyaan Kustom)"
+                        : `Buka Modul ${mId}`
+                    }
                     className={`px-2 py-1 rounded font-mono text-xs font-bold transition-colors ${
                       isCurrentMod
                         ? "bg-[#0F766E] text-[#FFFFFF]"
@@ -349,13 +368,13 @@ export const AppHeader: React.FC<HeaderProps> = ({
             <span className="text-xs font-mono font-bold text-[#475569]">
               PILIH MODUL:
             </span>
-            <div className="flex items-center gap-1.5">
-              {[1, 2, 3, 4].map((mId) => (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {[1, 2, 3, 4, 5].map((mId) => (
                 <Link
                   key={mId}
                   href={buildModuleSwitchHref(mId)}
                   onClick={() => setMobileMenuOpen(false)}
-                  className={`min-h-[38px] px-3 py-1.5 rounded-md font-mono text-xs font-bold inline-flex items-center ${
+                  className={`min-h-[44px] min-w-[44px] px-3 py-1.5 rounded-md font-mono text-xs font-bold inline-flex items-center justify-center ${
                     mId === activeModuleId
                       ? "bg-[#0F766E] text-[#FFFFFF]"
                       : "bg-[#F1F5F9] text-[#1E293B] border border-[#CBD5E1]"

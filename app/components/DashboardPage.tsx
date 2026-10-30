@@ -15,12 +15,20 @@ import {
   SlidersHorizontal,
   MessageCircle,
   Home,
+  PenLine,
+  Plus,
 } from "lucide-react";
 import {
+  isScenarioAnswered,
   useRoom,
   type Answer,
 } from "../lib/sessionStore";
-import { SCENARIOS, MODULES } from "../data/scenarios";
+import {
+  SCENARIOS,
+  MODULES,
+  CUSTOM_MODULE_META,
+  MAX_CUSTOM_SCENARIOS,
+} from "../data/scenarios";
 import { ModulePillarIllustration } from "./VisualIllustrations";
 
 interface DashboardProps {
@@ -45,6 +53,7 @@ export const DashboardPage: React.FC<DashboardProps> = ({
     role,
     isModuleUnlocked,
     completedModules,
+    customScenarios,
     isUserLocked,
     isPartnerLocked,
     isBothLocked,
@@ -53,10 +62,13 @@ export const DashboardPage: React.FC<DashboardProps> = ({
   const roomCode = room?.code || "VWS-000";
   const encodedRoom = encodeURIComponent(roomCode);
 
+  const completedCoreModules = completedModules.filter(
+    (id) => id >= 1 && id <= 4
+  );
   const activeModuleId =
-    [1, 2, 3, 4].find((id) => !completedModules.includes(id)) || 4;
+    [1, 2, 3, 4].find((id) => !completedCoreModules.includes(id)) || 4;
   const allModulesCompleted = [1, 2, 3, 4].every((id) =>
-    completedModules.includes(id)
+    completedCoreModules.includes(id)
   );
 
   const activeModuleMeta =
@@ -71,8 +83,12 @@ export const DashboardPage: React.FC<DashboardProps> = ({
     modId: number
   ) => {
     if (!answers) return 0;
-    const modScenarios = SCENARIOS.filter((s) => s.moduleId === modId);
-    return modScenarios.filter((s) => answers[s.id]?.choice !== undefined).length;
+    const modScenarios =
+      modId === 5
+        ? customScenarios
+        : SCENARIOS.filter((s) => s.moduleId === modId);
+    return modScenarios.filter((s) => isScenarioAnswered(s, answers[s.id]))
+      .length;
   };
 
   const myActiveAnswerCount = getModuleAnswerCount(me?.answers, activeModuleId);
@@ -80,6 +96,16 @@ export const DashboardPage: React.FC<DashboardProps> = ({
   const partnerActiveAnswerCount = getModuleAnswerCount(
     room?.[partnerRole]?.answers,
     activeModuleId
+  );
+
+  const customTotal = customScenarios.length;
+  const isMod5Completed = customTotal > 0 && completedModules.includes(5);
+  const isMod5BothLocked = customTotal > 0 && isBothLocked(5);
+  const isMod5UserLocked = customTotal > 0 && isUserLocked(5);
+  const myMod5Count = getModuleAnswerCount(me?.answers, 5);
+  const partnerMod5Count = getModuleAnswerCount(
+    room?.[partnerRole]?.answers,
+    5
   );
 
   const handleOpenCharter = (modId: number) => {
@@ -106,7 +132,7 @@ export const DashboardPage: React.FC<DashboardProps> = ({
         progressText={
           allModulesCompleted
             ? "Seluruh 4 Modul Selesai Diratifikasi"
-            : `Progres: ${completedModules.length}/4 Modul · Aktif Modul ${activeModuleId}`
+            : `Progres: ${completedCoreModules.length}/4 Modul · Aktif Modul ${activeModuleId}`
         }
         isEncrypted={true}
         userNames={`${myName || "Anda"} & ${partnerName || "Pasangan"}`}
@@ -152,6 +178,16 @@ export const DashboardPage: React.FC<DashboardProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <Link
+              href={`/room/${encodedRoom}/custom`}
+              className="min-h-[44px] px-3.5 py-2 rounded-lg border border-[#0F766E] bg-[#F0FDFA] hover:bg-[#ECFDF5] text-[#0F766E] text-xs font-bold inline-flex items-center gap-1.5 transition-colors"
+            >
+              <PenLine className="w-4 h-4 shrink-0" />
+              <span>
+                Bank Soal Kustom ({customTotal}/{MAX_CUSTOM_SCENARIOS})
+              </span>
+            </Link>
+
             <button
               type="button"
               onClick={() => {
@@ -185,7 +221,7 @@ export const DashboardPage: React.FC<DashboardProps> = ({
                 </h2>
               </div>
               <span className="text-xs font-mono font-bold px-2.5 py-1 rounded bg-[#F1F5F9] text-[#1E293B] border border-[#CBD5E1]">
-                {completedModules.length} / 4 Modul Selesai
+                {completedCoreModules.length} / 4 Modul Selesai
               </span>
             </div>
 
@@ -196,20 +232,20 @@ export const DashboardPage: React.FC<DashboardProps> = ({
                   <span
                     className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold ${
                       isActiveUserLocked ||
-                      completedModules.includes(activeModuleId)
+                      completedCoreModules.includes(activeModuleId)
                         ? "bg-[#0F766E] text-[#FFFFFF]"
                         : "bg-[#E2E8F0] text-[#1E293B]"
                     }`}
                   >
                     {isActiveUserLocked ||
-                    completedModules.includes(activeModuleId)
+                    completedCoreModules.includes(activeModuleId)
                       ? "✓"
                       : "1"}
                   </span>
                   <span>Anda ({myName})</span>
                 </span>
                 <span className="font-mono text-[#0F766E]">
-                  {completedModules.includes(activeModuleId)
+                  {completedCoreModules.includes(activeModuleId)
                     ? "Disahkan di Piagam"
                     : isActiveUserLocked
                     ? "Terkunci & Disegel (10/10)"
@@ -221,7 +257,7 @@ export const DashboardPage: React.FC<DashboardProps> = ({
                   <div
                     key={i}
                     className={`h-2.5 rounded-xs ${
-                      completedModules.includes(activeModuleId) ||
+                      completedCoreModules.includes(activeModuleId) ||
                       isActiveUserLocked ||
                       i < myActiveAnswerCount
                         ? "bg-[#0F766E]"
@@ -239,20 +275,20 @@ export const DashboardPage: React.FC<DashboardProps> = ({
                   <span
                     className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold ${
                       isActivePartnerLocked ||
-                      completedModules.includes(activeModuleId)
+                      completedCoreModules.includes(activeModuleId)
                         ? "bg-[#0F766E] text-[#FFFFFF]"
                         : "bg-[#FFFBEB] text-[#92400E] border border-[#FDE68A]"
                     }`}
                   >
                     {isActivePartnerLocked ||
-                    completedModules.includes(activeModuleId)
+                    completedCoreModules.includes(activeModuleId)
                       ? "✓"
                       : "2"}
                   </span>
                   <span>Pasangan ({partnerName})</span>
                 </span>
                 <span className="font-mono text-[#475569]">
-                  {completedModules.includes(activeModuleId)
+                  {completedCoreModules.includes(activeModuleId)
                     ? "Disahkan di Piagam"
                     : isActivePartnerLocked
                     ? "Terkunci & Disegel (10/10)"
@@ -264,7 +300,7 @@ export const DashboardPage: React.FC<DashboardProps> = ({
                   <div
                     key={i}
                     className={`h-2.5 rounded-xs ${
-                      completedModules.includes(activeModuleId) ||
+                      completedCoreModules.includes(activeModuleId) ||
                       isActivePartnerLocked ||
                       i < partnerActiveAnswerCount
                         ? "bg-[#B45309]"
@@ -385,7 +421,7 @@ export const DashboardPage: React.FC<DashboardProps> = ({
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             {MODULES.map((mod) => {
-              const isCompleted = completedModules.includes(mod.id);
+              const isCompleted = completedCoreModules.includes(mod.id);
               const isUnlocked = isModuleUnlocked(mod.id);
               const bothLock = isBothLocked(mod.id);
               const userLock = isUserLocked(mod.id);
@@ -523,6 +559,174 @@ export const DashboardPage: React.FC<DashboardProps> = ({
                 </div>
               );
             })}
+          </div>
+        </section>
+
+        {/* MOD-05: Collaborative Custom Questions Section (Full-Width Dual-Column Ledger Break) */}
+        <section className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+            <div>
+              <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#0F766E] block">
+                MODUL TAMBAHAN BEBAS URUTAN · KOLABORASI PASANGAN
+              </span>
+              <h2 className="text-xl font-extrabold text-[#1E293B]">
+                MOD-05: {CUSTOM_MODULE_META.title}
+              </h2>
+            </div>
+            <p className="text-xs text-[#475569]">
+              Terbuka sejak awal ruang dibuat. Keduanya dapat menambah, mengubah,
+              atau menghapus soal khusus (maksimal {MAX_CUSTOM_SCENARIOS} soal).
+            </p>
+          </div>
+
+          <div className="bg-[#FFFFFF] rounded-2xl p-6 sm:p-7 border-2 border-[#0F766E] grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+            <div className="lg:col-span-7 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-mono text-base font-extrabold text-[#1E293B]">
+                  MOD-05 · BANK SOAL KUSTOM
+                </span>
+
+                {customTotal === 0 ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#F1F5F9] text-[#475569] border border-[#CBD5E1] text-xs font-bold">
+                    <span>Belum Ada Soal Kustom</span>
+                  </span>
+                ) : isMod5Completed ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#ECFDF5] text-[#065F46] text-xs font-bold border border-[#A7F3D0]">
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Disahkan di Pasal V</span>
+                  </span>
+                ) : isMod5BothLocked ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#F0FDFA] text-[#0F766E] text-xs font-bold border border-[#99F6E4]">
+                    <Scale className="w-3.5 h-3.5" />
+                    <span>Siap Dibandingkan</span>
+                  </span>
+                ) : isMod5UserLocked ? (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#FFFBEB] text-[#92400E] text-xs font-bold border border-[#FDE68A]">
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>Menunggu Pasangan</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#F0FDFA] text-[#0F766E] border border-[#CCFBF1] text-xs font-bold">
+                    <span>
+                      Terbuka · {myMod5Count}/{customTotal} Dijawab
+                    </span>
+                  </span>
+                )}
+              </div>
+
+              <ModulePillarIllustration moduleId={5} compact />
+
+              <p className="text-xs sm:text-sm text-[#475569] leading-relaxed">
+                {CUSTOM_MODULE_META.description} Mendukung tipe{" "}
+                <strong className="text-[#1E293B]">Pilihan A / B / C</strong>{" "}
+                (dihitung dalam skor kecocokan) dan{" "}
+                <strong className="text-[#1E293B]">Esai Terbuka</strong>{" "}
+                (dibandingkan berdampingan setelah kedua segel terkunci).
+              </p>
+            </div>
+
+            <div className="lg:col-span-5 bg-[#F8FAF7] rounded-xl p-5 border border-[#CBD5E1] space-y-4">
+              <div className="grid grid-cols-3 gap-2 text-center divide-x divide-[#CBD5E1]">
+                <div className="px-1">
+                  <span className="block font-mono text-[11px] font-bold uppercase text-[#475569]">
+                    Total Soal
+                  </span>
+                  <span className="font-mono text-lg font-extrabold text-[#1E293B] tabular-nums">
+                    {customTotal}/{MAX_CUSTOM_SCENARIOS}
+                  </span>
+                </div>
+                <div className="px-1">
+                  <span className="block font-mono text-[11px] font-bold uppercase text-[#0F766E] truncate">
+                    {myName || "Anda"}
+                  </span>
+                  <span className="font-mono text-lg font-extrabold text-[#0F766E] tabular-nums">
+                    {myMod5Count}/{customTotal}
+                  </span>
+                </div>
+                <div className="px-1">
+                  <span className="block font-mono text-[11px] font-bold uppercase text-[#475569] truncate">
+                    {partnerName || "Pasangan"}
+                  </span>
+                  <span className="font-mono text-lg font-extrabold text-[#1E293B] tabular-nums">
+                    {partnerMod5Count}/{customTotal}
+                  </span>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-[#E2E8F0] space-y-2.5">
+                <Link
+                  href={`/room/${encodedRoom}/custom`}
+                  className="w-full min-h-[46px] py-2.5 px-4 rounded-lg bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-colors"
+                >
+                  {customTotal === 0 ? (
+                    <>
+                      <Plus className="w-4 h-4 shrink-0" />
+                      <span>Buat Pertanyaan Kustom Pertama</span>
+                    </>
+                  ) : (
+                    <>
+                      <PenLine className="w-4 h-4 shrink-0" />
+                      <span>Kelola / Tambah Bank Soal Kustom</span>
+                    </>
+                  )}
+                </Link>
+
+                {customTotal > 0 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {isMod5Completed ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenCharter(5)}
+                          className="flex-1 min-h-[44px] px-3.5 py-2 rounded-lg bg-[#ECFDF5] hover:bg-[#D1FAE5] text-[#065F46] border border-[#A7F3D0] text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <FileText className="w-3.5 h-3.5 shrink-0" />
+                          <span>Piagam Pasal V</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onRevealAnswers(5)}
+                          className="flex-1 min-h-[44px] px-3.5 py-2 rounded-lg border border-[#CBD5E1] bg-[#FFFFFF] hover:bg-[#F1F5F9] text-[#1E293B] text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <Scale className="w-3.5 h-3.5 text-[#0F766E] shrink-0" />
+                          <span>Tinjau Hasil</span>
+                        </button>
+                      </>
+                    ) : isMod5BothLocked ? (
+                      <button
+                        type="button"
+                        onClick={() => onRevealAnswers(5)}
+                        className="w-full min-h-[44px] px-4 py-2 rounded-lg bg-[#ECFDF5] hover:bg-[#D1FAE5] text-[#065F46] border border-[#A7F3D0] text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Scale className="w-3.5 h-3.5 shrink-0" />
+                        <span>Buka Hasil &amp; Kompromi MOD-05</span>
+                      </button>
+                    ) : isMod5UserLocked ? (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenWaiting(5)}
+                        className="w-full min-h-[44px] px-4 py-2 rounded-lg bg-[#FFFBEB] text-[#92400E] border border-[#FDE68A] text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Clock className="w-3.5 h-3.5 shrink-0" />
+                        <span>Buka Ruang Tunggu MOD-05</span>
+                      </button>
+                    ) : (
+                      <Link
+                        href={`/room/${encodedRoom}/dilemma?module=5`}
+                        className="w-full min-h-[44px] px-4 py-2 rounded-lg border border-[#0F766E] bg-[#FFFFFF] hover:bg-[#F0FDFA] text-[#0F766E] text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
+                      >
+                        <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" />
+                        <span>
+                          {myMod5Count > 0
+                            ? `Lanjutkan Jawab MOD-05 (${myMod5Count}/${customTotal})`
+                            : `Jawab ${customTotal} Soal Kustom`}
+                        </span>
+                      </Link>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </section>
       </main>

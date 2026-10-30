@@ -4,7 +4,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { MODULES, SCENARIOS } from "../../data/scenarios";
 import { matchScore } from "../../lib/scoring";
-import type { OptionKey } from "../../lib/sessionStore";
+import {
+  computeChoicesAlignmentScore,
+  extractTrackTagFromCode,
+  maskParticipantName,
+  sanitizeChoicesOnly,
+} from "../../lib/analyticsLogger";
+import type { Answer, OptionKey } from "../../lib/sessionStore";
 
 const AUTH_COOKIE_NAME = "vowsync_analytics_auth";
 
@@ -56,8 +62,10 @@ const sanitizeAnswerRecord = (
   if (!raw || typeof raw !== "object") return {};
   const out: Record<string, OptionKey> = {};
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const numId = Number(k);
+    if (!Number.isInteger(numId) || numId < 1 || numId > 40) continue;
     if (v === "A" || v === "B" || v === "C") {
-      out[String(k)] = v;
+      out[String(numId)] = v;
     }
   }
   return out;
@@ -159,33 +167,236 @@ export async function GET(request: NextRequest) {
     .from("analytics_logs")
     .select("*")
     .order("updated_at", { ascending: false })
-    .limit(500);
+    .limit(1000);
 
   if (error) {
     const code = error.code || "";
     const msg = error.message || "";
+    const isPermissionDenied =
+      code === "42501" || /permission denied/i.test(msg);
     const isMissingTable =
-      code === "42P01" ||
-      code === "PGRST205" ||
-      /analytics_logs/i.test(msg);
+      !isPermissionDenied &&
+      (code === "42P01" ||
+        code === "PGRST205" ||
+        /could not find the table|does not exist/i.test(msg));
 
     return NextResponse.json({
       authenticated: true,
       pinConfigured: true,
       supabaseConfigured: true,
       tableMissing: isMissingTable,
-      dbError: isMissingTable ? null : msg,
+      permissionDenied: isPermissionDenied,
+      dbError: isMissingTable || isPermissionDenied ? null : `${code ? `[${code}] ` : ""}${msg}`,
     });
   }
 
-  const typedAllRows = (allRows || []) as RawAnalyticsRow[];
+  const rowMap = new Map<string, RawAnalyticsRow>();
+  for (const r of (allRows || []) as RawAnalyticsRow[]) {
+    if (r?.room_code) {
+      rowMap.set(r.room_code.trim().toUpperCase(), r);
+    }
+  }
+
+  // Also backfill any active rooms in `public.rooms` created before `analytics_logs` was active
+  const { data: activeRooms, error: roomsError } = await sb
+    .from("rooms")
+    .select("code, host_name, guest_name, completed_modules, status, created_at")
+    .limit(500);
+
+  const customCountByRoom = new Map<string, number>();
+
+  if (!roomsError && Array.isArray(activeRooms)) {
+    const backfillRows: RawAnalyticsRow[] = [];
+
+    for (const roomRow of activeRooms) {
+      const normalizedCode = String(roomRow?.code || "")
+        .trim()
+        .toUpperCase();
+      const trackTag = extractTrackTagFromCode(normalizedCode);
+      if (!trackTag) continue;
+
+      let parsedPayload: {
+        v?: number;
+        host?: {
+          name?: string;
+          isJoined?: boolean;
+          locked?: boolean;
+          lockedModules?: number[];
+          answers?: Record<number, Answer>;
+        };
+        guest?: {
+          name?: string;
+          isJoined?: boolean;
+          locked?: boolean;
+          lockedModules?: number[];
+          answers?: Record<number, Answer>;
+        };
+        completedModules?: number[];
+        customScenarios?: unknown[];
+      } | null = null;
+
+      if (
+        typeof roomRow.status === "string" &&
+        roomRow.status.trim().startsWith("{")
+      ) {
+        try {
+          parsedPayload = JSON.parse(roomRow.status);
+        } catch {
+          parsedPayload = null;
+        }
+      }
+
+      const customCount = Array.isArray(parsedPayload?.customScenarios)
+        ? parsedPayload.customScenarios.length
+        : 0;
+      customCountByRoom.set(normalizedCode, customCount);
+
+      const hostChoices = sanitizeChoicesOnly(parsedPayload?.host?.answers);
+      const guestChoices = sanitizeChoicesOnly(parsedPayload?.guest?.answers);
+      const guestNameRaw = String(
+        roomRow.guest_name || parsedPayload?.guest?.name || ""
+      ).trim();
+      const guestJoined = Boolean(
+        guestNameRaw.length > 0 || parsedPayload?.guest?.isJoined
+      );
+
+      const normalizeModArr = (
+        arr: unknown,
+        legacyLocked?: boolean
+      ): number[] => {
+        const list = Array.isArray(arr)
+          ? arr
+              .map(Number)
+              .filter(
+                (m) => m === 1 || m === 2 || m === 3 || m === 4 || m === 5
+              )
+          : [];
+        if (legacyLocked && !list.includes(1)) list.push(1);
+        return Array.from(new Set(list)).sort((a, b) => a - b);
+      };
+
+      const completedMerged = Array.from(
+        new Set([
+          ...normalizeModArr(roomRow.completed_modules),
+          ...normalizeModArr(parsedPayload?.completedModules),
+        ])
+      ).sort((a, b) => a - b);
+
+      const candidate: RawAnalyticsRow = {
+        room_code: normalizedCode,
+        track_tag: trackTag,
+        host_masked:
+          maskParticipantName(
+            roomRow.host_name || parsedPayload?.host?.name
+          ) || "H***",
+        guest_masked: guestJoined
+          ? maskParticipantName(guestNameRaw) || "G***"
+          : null,
+        guest_joined: guestJoined,
+        host_answers: hostChoices,
+        guest_answers: guestChoices,
+        host_locked_modules: normalizeModArr(
+          parsedPayload?.host?.lockedModules,
+          parsedPayload?.host?.locked
+        ),
+        guest_locked_modules: normalizeModArr(
+          parsedPayload?.guest?.lockedModules,
+          parsedPayload?.guest?.locked
+        ),
+        completed_modules: completedMerged,
+        alignment_score: guestJoined
+          ? computeChoicesAlignmentScore(hostChoices, guestChoices)
+          : null,
+        created_at: roomRow.created_at || new Date().toISOString(),
+        updated_at: roomRow.created_at || new Date().toISOString(),
+      };
+
+      const existing = rowMap.get(normalizedCode);
+      const existingHostCount = existing
+        ? Object.keys(sanitizeAnswerRecord(existing.host_answers)).length
+        : 0;
+      const existingGuestCount = existing
+        ? Object.keys(sanitizeAnswerRecord(existing.guest_answers)).length
+        : 0;
+      const existingCompletedCount = Array.isArray(existing?.completed_modules)
+        ? existing.completed_modules.length
+        : 0;
+
+      const isNewerOrMissing =
+        !existing ||
+        (!existing.guest_joined && candidate.guest_joined) ||
+        Object.keys(hostChoices).length > existingHostCount ||
+        Object.keys(guestChoices).length > existingGuestCount ||
+        completedMerged.length > existingCompletedCount;
+
+      if (isNewerOrMissing) {
+        const mergedRow: RawAnalyticsRow = existing
+          ? {
+              ...existing,
+              guest_joined: Boolean(
+                existing.guest_joined || candidate.guest_joined
+              ),
+              guest_masked: candidate.guest_masked || existing.guest_masked,
+              host_answers: {
+                ...sanitizeAnswerRecord(existing.host_answers),
+                ...hostChoices,
+              },
+              guest_answers: {
+                ...sanitizeAnswerRecord(existing.guest_answers),
+                ...guestChoices,
+              },
+              host_locked_modules: Array.from(
+                new Set([
+                  ...(existing.host_locked_modules || []),
+                  ...(candidate.host_locked_modules || []),
+                ])
+              ).sort((a, b) => a - b),
+              guest_locked_modules: Array.from(
+                new Set([
+                  ...(existing.guest_locked_modules || []),
+                  ...(candidate.guest_locked_modules || []),
+                ])
+              ).sort((a, b) => a - b),
+              completed_modules: Array.from(
+                new Set([
+                  ...(existing.completed_modules || []),
+                  ...completedMerged,
+                ])
+              ).sort((a, b) => a - b),
+              alignment_score:
+                candidate.alignment_score ?? existing.alignment_score,
+            }
+          : candidate;
+
+        rowMap.set(normalizedCode, mergedRow);
+        backfillRows.push(mergedRow);
+      }
+    }
+
+    if (backfillRows.length > 0) {
+      await sb
+        .from("analytics_logs")
+        .upsert(backfillRows, { onConflict: "room_code" });
+    }
+  }
+
+  const typedAllRows = Array.from(rowMap.values()).sort((a, b) => {
+    const timeA = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+    const timeB = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+    return timeB - timeA;
+  });
+
   const availableTags = Array.from(
     new Set(
       typedAllRows
         .map((r) => (r.track_tag || "").trim().toUpperCase())
         .filter(Boolean)
     )
-  ).sort();
+  ).sort((a, b) => {
+    if (a === "PUBLIK") return -1;
+    if (b === "PUBLIK") return 1;
+    return a.localeCompare(b);
+  });
 
   const filteredRows =
     tagFilter === "ALL"
@@ -207,6 +418,8 @@ export async function GET(request: NextRequest) {
     const completedModules = Array.isArray(row.completed_modules)
       ? row.completed_modules.map(Number)
       : [];
+    const normalizedCodeKey = row.room_code.trim().toUpperCase();
+    const customQuestionCount = customCountByRoom.get(normalizedCodeKey) || 0;
 
     return {
       roomCode: row.room_code,
@@ -219,6 +432,7 @@ export async function GET(request: NextRequest) {
       hostLockedModules,
       guestLockedModules,
       completedModules,
+      customQuestionCount,
       alignmentScore:
         typeof row.alignment_score === "number" ? row.alignment_score : null,
       createdAt: row.created_at,
@@ -243,6 +457,25 @@ export async function GET(request: NextRequest) {
   );
   const completedAllModulesRooms = normalizedSessions.filter((s) =>
     [1, 2, 3, 4].every((m) => s.completedModules.includes(m))
+  ).length;
+
+  const roomsWithCustomQuestions = normalizedSessions.filter(
+    (s) =>
+      s.customQuestionCount > 0 ||
+      s.completedModules.includes(5) ||
+      s.hostLockedModules.includes(5) ||
+      s.guestLockedModules.includes(5)
+  ).length;
+  const totalCustomQuestionsCreated = normalizedSessions.reduce(
+    (acc, s) => acc + s.customQuestionCount,
+    0
+  );
+  const bothLockedCustomRooms = normalizedSessions.filter(
+    (s) =>
+      s.hostLockedModules.includes(5) && s.guestLockedModules.includes(5)
+  ).length;
+  const completedCustomRooms = normalizedSessions.filter((s) =>
+    s.completedModules.includes(5)
   ).length;
 
   const scoredSessions = normalizedSessions.filter(
@@ -398,6 +631,12 @@ export async function GET(request: NextRequest) {
       completedAllModulesRooms,
       averageAlignment,
       moduleFunnel,
+      customAdoption: {
+        roomsWithCustomQuestions,
+        totalCustomQuestionsCreated,
+        bothLockedCustomRooms,
+        completedCustomRooms,
+      },
     },
     topConflictScenarios,
     scenarioStats,

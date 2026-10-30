@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { SCENARIOS } from "../data/scenarios";
+import {
+  SCENARIOS,
+  MAX_CUSTOM_SCENARIOS,
+  type DilemmaScenario,
+  type QuestionType,
+} from "../data/scenarios";
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { syncAnalyticsLog } from "./analyticsLogger";
 
@@ -12,7 +17,42 @@ export interface Answer {
   choice?: OptionKey;
   amount?: number;
   note?: string;
+  essayText?: string;
+  questionVersion?: number;
 }
+
+export interface CustomScenarioInput {
+  categoryLabel: string;
+  title: string;
+  description?: string;
+  questionType: QuestionType;
+  options?: {
+    key: OptionKey;
+    text: string;
+  }[];
+}
+
+export const isScenarioAnswered = (
+  scenario: DilemmaScenario,
+  answer?: Answer
+): boolean => {
+  if (!answer) return false;
+  if (
+    scenario.version !== undefined &&
+    answer.questionVersion !== undefined &&
+    answer.questionVersion < scenario.version
+  ) {
+    return false;
+  }
+  if (scenario.questionType === "essay") {
+    return (answer.essayText || "").trim().length >= 2;
+  }
+  return (
+    answer.choice === "A" ||
+    answer.choice === "B" ||
+    answer.choice === "C"
+  );
+};
 
 export interface SignatureData {
   dataUrl: string;
@@ -23,6 +63,7 @@ export interface CompromiseItem {
   scenarioId: number;
   title: string;
   agreementText: string;
+  questionVersion?: number;
 }
 
 interface ParticipantState {
@@ -30,6 +71,7 @@ interface ParticipantState {
   answers: Record<number, Answer>;
   locked: boolean;
   lockedModules?: number[];
+  customLockedRevision?: number;
   signature?: SignatureData;
   isJoined: boolean;
 }
@@ -41,6 +83,10 @@ export interface RoomState {
   guest: ParticipantState;
   compromises?: CompromiseItem[];
   completedModules?: number[];
+  customScenarios?: DilemmaScenario[];
+  deletedCustomIds?: number[];
+  customModuleRevision?: number;
+  customCompletedRevision?: number;
 }
 
 export type RoomData = RoomState;
@@ -58,6 +104,7 @@ const emptyParticipant = (
   answers: {},
   locked: false,
   lockedModules: [],
+  customLockedRevision: 0,
   isJoined,
 });
 
@@ -83,6 +130,10 @@ interface CloudStatePayload {
   guest?: ParticipantState;
   compromises?: CompromiseItem[];
   completedModules?: number[];
+  customScenarios?: DilemmaScenario[];
+  deletedCustomIds?: number[];
+  customModuleRevision?: number;
+  customCompletedRevision?: number;
 }
 
 const parseCloudPayload = (statusField: unknown): CloudStatePayload | null => {
@@ -119,12 +170,47 @@ const mergeParticipant = (
       forceJoined || base.isJoined || other.isJoined || base.name || other.name
     ),
     locked: Boolean(
-      base.locked || other.locked || mergedLockedModules.length > 0
+      base.locked || other.locked || mergedLockedModules.includes(1)
     ),
     lockedModules: mergedLockedModules,
+    customLockedRevision: Math.max(
+      other.customLockedRevision || 0,
+      base.customLockedRevision || 0
+    ),
     answers: { ...(other.answers || {}), ...(base.answers || {}) },
     signature: base.signature || other.signature,
   };
+};
+
+const mergeCustomScenarios = (
+  baseList: DilemmaScenario[] = [],
+  overrideList: DilemmaScenario[] = [],
+  deletedIds: Set<number>
+): DilemmaScenario[] => {
+  const map = new Map<number, DilemmaScenario>();
+  for (const item of baseList) {
+    if (item && typeof item.id === "number" && !deletedIds.has(item.id)) {
+      map.set(item.id, item);
+    }
+  }
+  for (const item of overrideList) {
+    if (!item || typeof item.id !== "number" || deletedIds.has(item.id)) {
+      continue;
+    }
+    const existing = map.get(item.id);
+    if (!existing) {
+      map.set(item.id, item);
+      continue;
+    }
+    const existingVer = existing.version ?? 1;
+    const nextVer = item.version ?? 1;
+    if (nextVer >= existingVer) {
+      map.set(item.id, item);
+    }
+  }
+  return Array.from(map.values())
+    .sort((a, b) => a.id - b.id)
+    .slice(0, MAX_CUSTOM_SCENARIOS);
 };
 
 const mergeCompromises = (
@@ -183,6 +269,96 @@ const buildRoomFromCloudRow = (
     Boolean(guestName)
   );
 
+  const mergedDeletedIds = Array.from(
+    new Set([
+      ...(payload?.deletedCustomIds || []),
+      ...(localRoom?.deletedCustomIds || []),
+    ])
+  )
+    .filter((id) => typeof id === "number" && id >= 1001)
+    .sort((a, b) => a - b);
+  const deletedSet = new Set<number>(mergedDeletedIds);
+
+  const mergedCustomScenarios = preferLocalRole
+    ? mergeCustomScenarios(
+        payload?.customScenarios,
+        localRoom?.customScenarios,
+        deletedSet
+      )
+    : mergeCustomScenarios(
+        localRoom?.customScenarios,
+        payload?.customScenarios,
+        deletedSet
+      );
+
+  const mergedCustomRevision = Math.max(
+    payload?.customModuleRevision || 0,
+    localRoom?.customModuleRevision || 0
+  );
+  const mergedCustomCompletedRevision = Math.max(
+    payload?.customCompletedRevision || 0,
+    localRoom?.customCompletedRevision || 0
+  );
+
+  // Prune answers belonging to deleted or version-bumped custom questions
+  const hostAnswersClean: Record<number, Answer> = { ...mergedHost.answers };
+  const guestAnswersClean: Record<number, Answer> = { ...mergedGuest.answers };
+
+  for (const delId of mergedDeletedIds) {
+    delete hostAnswersClean[delId];
+    delete guestAnswersClean[delId];
+  }
+
+  const customVerMap = new Map<number, number>();
+  for (const sc of mergedCustomScenarios) {
+    const ver = sc.version ?? 1;
+    customVerMap.set(sc.id, ver);
+    if (
+      hostAnswersClean[sc.id] &&
+      (hostAnswersClean[sc.id].questionVersion ?? 1) < ver
+    ) {
+      delete hostAnswersClean[sc.id];
+    }
+    if (
+      guestAnswersClean[sc.id] &&
+      (guestAnswersClean[sc.id].questionVersion ?? 1) < ver
+    ) {
+      delete guestAnswersClean[sc.id];
+    }
+  }
+
+  mergedHost.answers = hostAnswersClean;
+  mergedGuest.answers = guestAnswersClean;
+
+  // Reconcile MOD-05 locks against customModuleRevision and answered completeness
+  if (mergedHost.lockedModules?.includes(5)) {
+    const validHostMod5 =
+      mergedCustomScenarios.length > 0 &&
+      (mergedHost.customLockedRevision ?? 0) >= mergedCustomRevision &&
+      mergedCustomScenarios.every((sc) =>
+        isScenarioAnswered(sc, mergedHost.answers[sc.id])
+      );
+    if (!validHostMod5) {
+      mergedHost.lockedModules = mergedHost.lockedModules.filter(
+        (m) => m !== 5
+      );
+    }
+  }
+
+  if (mergedGuest.lockedModules?.includes(5)) {
+    const validGuestMod5 =
+      mergedCustomScenarios.length > 0 &&
+      (mergedGuest.customLockedRevision ?? 0) >= mergedCustomRevision &&
+      mergedCustomScenarios.every((sc) =>
+        isScenarioAnswered(sc, mergedGuest.answers[sc.id])
+      );
+    if (!validGuestMod5) {
+      mergedGuest.lockedModules = mergedGuest.lockedModules.filter(
+        (m) => m !== 5
+      );
+    }
+  }
+
   const cloudCompleted = Array.isArray(row.completed_modules)
     ? row.completed_modules
     : [];
@@ -193,13 +369,34 @@ const buildRoomFromCloudRow = (
     ? localRoom.completedModules
     : [];
 
-  const mergedCompleted = Array.from(
+  let mergedCompleted = Array.from(
     new Set([...cloudCompleted, ...payloadCompleted, ...localCompleted])
   );
 
-  const mergedCompromises = preferLocalRole
+  if (mergedCompleted.includes(5)) {
+    const validCompletedMod5 =
+      mergedCustomScenarios.length > 0 &&
+      mergedCustomCompletedRevision >= mergedCustomRevision &&
+      Boolean(mergedHost.lockedModules?.includes(5)) &&
+      Boolean(mergedGuest.lockedModules?.includes(5));
+    if (!validCompletedMod5) {
+      mergedCompleted = mergedCompleted.filter((m) => m !== 5);
+    }
+  }
+
+  const rawCompromises = preferLocalRole
     ? mergeCompromises(payload?.compromises, localRoom?.compromises)
     : mergeCompromises(localRoom?.compromises, payload?.compromises);
+
+  const mergedCompromises = rawCompromises.filter((c) => {
+    if (deletedSet.has(c.scenarioId)) return false;
+    if (c.scenarioId >= 1001) {
+      const targetVer = customVerMap.get(c.scenarioId);
+      if (targetVer === undefined) return false;
+      if ((c.questionVersion ?? 1) < targetVer) return false;
+    }
+    return true;
+  });
 
   return {
     code: String(row.code || localRoom?.code || "").toUpperCase(),
@@ -208,6 +405,10 @@ const buildRoomFromCloudRow = (
     guest: mergedGuest,
     compromises: mergedCompromises,
     completedModules: mergedCompleted,
+    customScenarios: mergedCustomScenarios,
+    deletedCustomIds: mergedDeletedIds,
+    customModuleRevision: mergedCustomRevision,
+    customCompletedRevision: mergedCustomCompletedRevision,
   };
 };
 
@@ -242,6 +443,10 @@ export const syncRoomToSupabase = async (
       guest: merged.guest,
       compromises: merged.compromises || [],
       completedModules: merged.completedModules || [],
+      customScenarios: merged.customScenarios || [],
+      deletedCustomIds: merged.deletedCustomIds || [],
+      customModuleRevision: merged.customModuleRevision || 0,
+      customCompletedRevision: merged.customCompletedRevision || 0,
     };
 
     if (existingRow) {
@@ -313,12 +518,16 @@ export const pullRoomFromSupabase = async (
       writeRoom(merged);
     }
 
-    // If this device has local answers/locks for currentRole not yet stored in cloud payload, push them up
+    // Push pending local answers, locks, or custom question edits not yet stored in cloud payload
     if (
       currentRole &&
       localRoom &&
-      JSON.stringify(merged[currentRole]) !==
-        JSON.stringify(payload?.[currentRole])
+      (JSON.stringify(merged[currentRole]) !==
+        JSON.stringify(payload?.[currentRole]) ||
+        JSON.stringify(merged.customScenarios || []) !==
+          JSON.stringify(payload?.customScenarios || []) ||
+        JSON.stringify(merged.deletedCustomIds || []) !==
+          JSON.stringify(payload?.deletedCustomIds || []))
     ) {
       await syncRoomToSupabase(merged, currentRole);
     }
@@ -456,6 +665,10 @@ export const createRoom = (
     guest: emptyParticipant("", false),
     compromises: [],
     completedModules: [],
+    customScenarios: [],
+    deletedCustomIds: [],
+    customModuleRevision: 0,
+    customCompletedRevision: 0,
   });
 
   sessionStorage.setItem(ROLE_KEY, "host");
@@ -626,6 +839,10 @@ export const createRoomAsync = async (
         guest: initialRoom?.guest || emptyParticipant("", false),
         compromises: [],
         completedModules: [],
+        customScenarios: [],
+        deletedCustomIds: [],
+        customModuleRevision: 0,
+        customCompletedRevision: 0,
       };
 
       const { error } = await supabase.from("rooms").insert({
@@ -706,6 +923,10 @@ export const joinRoomAsync = async (
           guest: mergedRoom.guest,
           compromises: mergedRoom.compromises || [],
           completedModules: mergedRoom.completedModules || [],
+          customScenarios: mergedRoom.customScenarios || [],
+          deletedCustomIds: mergedRoom.deletedCustomIds || [],
+          customModuleRevision: mergedRoom.customModuleRevision || 0,
+          customCompletedRevision: mergedRoom.customCompletedRevision || 0,
         };
 
         await supabase
@@ -779,7 +1000,11 @@ export const simulatePartnerLock = (
   if (!currentRoom) return;
   const currentRole = (sessionStorage.getItem(ROLE_KEY) as Role) || "host";
   const otherRole: Role = currentRole === "host" ? "guest" : "host";
-  const modScenarios = SCENARIOS.filter((s) => s.moduleId === moduleId);
+  const modScenarios =
+    moduleId === 5
+      ? currentRoom.customScenarios || []
+      : SCENARIOS.filter((s) => s.moduleId === moduleId);
+  if (modScenarios.length === 0) return;
 
   const partnerAnswers: Record<number, Answer> = {
     ...currentRoom[otherRole].answers,
@@ -814,7 +1039,26 @@ export const simulatePartnerLock = (
   ];
 
   modScenarios.forEach((sc, idx) => {
-    if (!partnerAnswers[sc.id]?.choice) {
+    const qVer = sc.version ?? 1;
+    if (sc.questionType === "essay") {
+      if (!isScenarioAnswered(sc, partnerAnswers[sc.id])) {
+        partnerAnswers[sc.id] = {
+          essayText:
+            "Mari kita bicarakan secara terbuka dan tetapkan batas kesepakatan tertulis yang nyaman bagi kedua pihak.",
+          questionVersion: qVer,
+        };
+      }
+      if (!isScenarioAnswered(sc, myAnswers[sc.id])) {
+        myAnswers[sc.id] = {
+          essayText:
+            "Setuju untuk dibahas bersama secara berkala dengan prioritas keutuhan rumah tangga inti.",
+          questionVersion: qVer,
+        };
+      }
+      return;
+    }
+
+    if (!isScenarioAnswered(sc, partnerAnswers[sc.id])) {
       partnerAnswers[sc.id] = {
         choice: partnerChoices[idx % partnerChoices.length],
         amount: sc.slider ? sc.slider.defaultValue : undefined,
@@ -822,14 +1066,16 @@ export const simulatePartnerLock = (
           idx % 3 === 0
             ? "Prioritaskan kestabilan kas rumah tangga inti terlebih dahulu."
             : undefined,
+        questionVersion: qVer,
       };
     }
-    if (!myAnswers[sc.id]?.choice) {
+    if (!isScenarioAnswered(sc, myAnswers[sc.id])) {
       myAnswers[sc.id] = {
         choice: myChoices[idx % myChoices.length],
         amount: sc.slider
           ? sc.slider.defaultValue + sc.slider.step * 2
           : undefined,
+        questionVersion: qVer,
       };
     }
   });
@@ -844,12 +1090,19 @@ export const simulatePartnerLock = (
     ? prevMyLocked
     : [...prevMyLocked, moduleId];
 
+  const currentRev = currentRoom.customModuleRevision || 0;
+
   const next: RoomState = {
     ...currentRoom,
     [currentRole]: {
       ...currentRoom[currentRole],
-      locked: true,
+      locked:
+        moduleId === 1 ? true : Boolean(currentRoom[currentRole].locked),
       lockedModules: updatedMyLocked,
+      customLockedRevision:
+        moduleId === 5
+          ? currentRev
+          : currentRoom[currentRole].customLockedRevision,
       answers: myAnswers,
     },
     [otherRole]: {
@@ -859,8 +1112,13 @@ export const simulatePartnerLock = (
           ? currentRoom[otherRole].name
           : "Pasangan (Simulasi)",
       isJoined: true,
-      locked: true,
+      locked:
+        moduleId === 1 ? true : Boolean(currentRoom[otherRole].locked),
       lockedModules: updatedPartnerLocked,
+      customLockedRevision:
+        moduleId === 5
+          ? currentRev
+          : currentRoom[otherRole].customLockedRevision,
       answers: partnerAnswers,
     },
   };
@@ -1017,13 +1275,21 @@ export const useRoom = (explicitCode?: string) => {
     if (!currentRoom) return;
     const currentRole = (sessionStorage.getItem(ROLE_KEY) as Role) || role;
 
+    const customMatch =
+      questionId >= 1001
+        ? (currentRoom.customScenarios || []).find((s) => s.id === questionId)
+        : undefined;
+    const stampedAnswer: Answer = customMatch
+      ? { ...answer, questionVersion: customMatch.version ?? 1 }
+      : answer;
+
     const next: RoomState = {
       ...currentRoom,
       [currentRole]: {
         ...currentRoom[currentRole],
         answers: {
           ...currentRoom[currentRole].answers,
-          [questionId]: answer,
+          [questionId]: stampedAnswer,
         },
       },
     };
@@ -1058,8 +1324,13 @@ export const useRoom = (explicitCode?: string) => {
       ...currentRoom,
       [currentRole]: {
         ...currentRoom[currentRole],
-        locked: true,
+        locked:
+          moduleId === 1 ? true : Boolean(currentRoom[currentRole].locked),
         lockedModules: updatedLocked,
+        customLockedRevision:
+          moduleId === 5
+            ? currentRoom.customModuleRevision || 0
+            : currentRoom[currentRole].customLockedRevision,
       },
     };
     writeRoom(next);
@@ -1097,13 +1368,23 @@ export const useRoom = (explicitCode?: string) => {
     const currentRoom = (code ? readRoom(code) : null) || room;
     if (!currentRoom) return;
     const currentRole = (sessionStorage.getItem(ROLE_KEY) as Role) || role;
+    const customMatch =
+      compromise.scenarioId >= 1001
+        ? (currentRoom.customScenarios || []).find(
+            (s) => s.id === compromise.scenarioId
+          )
+        : undefined;
+    const stampedCompromise: CompromiseItem = customMatch
+      ? { ...compromise, questionVersion: customMatch.version ?? 1 }
+      : compromise;
+
     const current = currentRoom.compromises || [];
     const filtered = current.filter(
-      (c) => c.scenarioId !== compromise.scenarioId
+      (c) => c.scenarioId !== stampedCompromise.scenarioId
     );
     const next: RoomState = {
       ...currentRoom,
-      compromises: [...filtered, compromise],
+      compromises: [...filtered, stampedCompromise],
     };
     writeRoom(next);
     void syncRoomToSupabase(next, currentRole);
@@ -1116,19 +1397,274 @@ export const useRoom = (explicitCode?: string) => {
     if (!currentRoom) return;
     const currentRole = (sessionStorage.getItem(ROLE_KEY) as Role) || role;
     const currentCompleted = currentRoom.completedModules || [];
-    if (currentCompleted.includes(moduleId)) {
+    const currentRev = currentRoom.customModuleRevision || 0;
+    if (
+      currentCompleted.includes(moduleId) &&
+      (moduleId !== 5 ||
+        (currentRoom.customCompletedRevision ?? 0) >= currentRev)
+    ) {
       return;
     }
+    const nextCompleted = currentCompleted.includes(moduleId)
+      ? currentCompleted
+      : [...currentCompleted, moduleId];
     const next: RoomState = {
       ...currentRoom,
-      completedModules: [...currentCompleted, moduleId],
+      completedModules: nextCompleted,
+      customCompletedRevision:
+        moduleId === 5 ? currentRev : currentRoom.customCompletedRevision,
     };
     writeRoom(next);
     void syncRoomToSupabase(next, currentRole);
   };
 
+  const validateCustomInput = (
+    input: CustomScenarioInput
+  ): { ok: true } | { ok: false; error: string } => {
+    const cleanTitle = (input.title || "").trim();
+    if (cleanTitle.length < 4) {
+      return {
+        ok: false,
+        error: "Judul pertanyaan minimal 4 karakter agar jelas bagi pasangan.",
+      };
+    }
+    const cleanCategory = (input.categoryLabel || "").trim();
+    if (cleanCategory.length < 2) {
+      return {
+        ok: false,
+        error: "Pilih atau isi label kategori topik terlebih dahulu.",
+      };
+    }
+    if (input.questionType === "abc") {
+      const opts = input.options || [];
+      const optA = opts.find((o) => o.key === "A")?.text.trim() || "";
+      const optB = opts.find((o) => o.key === "B")?.text.trim() || "";
+      const optC = opts.find((o) => o.key === "C")?.text.trim() || "";
+      if (!optA || !optB || !optC) {
+        return {
+          ok: false,
+          error:
+            "Untuk tipe Pilihan A/B/C, ketiga opsi (A, B, dan C) wajib diisi lengkap.",
+        };
+      }
+    }
+    return { ok: true };
+  };
+
+  const addCustomScenario = (
+    input: CustomScenarioInput
+  ): { ok: boolean; error?: string; scenario?: DilemmaScenario } => {
+    const code = resolveActiveCode();
+    const currentRoom = (code ? readRoom(code) : null) || room;
+    if (!currentRoom) {
+      return { ok: false, error: "Sesi ruang belum ditemukan." };
+    }
+    const existingList = currentRoom.customScenarios || [];
+    if (existingList.length >= MAX_CUSTOM_SCENARIOS) {
+      return {
+        ok: false,
+        error: `Maksimal ${MAX_CUSTOM_SCENARIOS} pertanyaan kustom per ruang telah tercapai.`,
+      };
+    }
+
+    const check = validateCustomInput(input);
+    if (!check.ok) return check;
+
+    const currentRole = (sessionStorage.getItem(ROLE_KEY) as Role) || role;
+    const deletedIds = currentRoom.deletedCustomIds || [];
+    const maxExistingId = Math.max(
+      1000,
+      ...existingList.map((s) => s.id),
+      ...deletedIds
+    );
+    const nextId = maxExistingId + 1;
+    const cleanCategory = input.categoryLabel.trim();
+    const nextRev = (currentRoom.customModuleRevision || 0) + 1;
+
+    const newScenario: DilemmaScenario = {
+      id: nextId,
+      moduleId: 5,
+      category: cleanCategory,
+      categoryLabel: cleanCategory,
+      title: input.title.trim(),
+      description: (input.description || "").trim() || undefined,
+      questionType: input.questionType,
+      createdBy: currentRole,
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      options:
+        input.questionType === "abc" && input.options
+          ? (["A", "B", "C"] as OptionKey[]).map((key) => ({
+              key,
+              text:
+                input.options?.find((o) => o.key === key)?.text.trim() || "",
+            }))
+          : [],
+    };
+
+    const next: RoomState = {
+      ...currentRoom,
+      customScenarios: [...existingList, newScenario],
+      customModuleRevision: nextRev,
+      completedModules: (currentRoom.completedModules || []).filter(
+        (m) => m !== 5
+      ),
+      host: {
+        ...currentRoom.host,
+        lockedModules: (currentRoom.host.lockedModules || []).filter(
+          (m) => m !== 5
+        ),
+      },
+      guest: {
+        ...currentRoom.guest,
+        lockedModules: (currentRoom.guest.lockedModules || []).filter(
+          (m) => m !== 5
+        ),
+      },
+    };
+
+    writeRoom(next);
+    void syncRoomToSupabase(next, currentRole);
+    return { ok: true, scenario: newScenario };
+  };
+
+  const updateCustomScenario = (
+    id: number,
+    input: CustomScenarioInput
+  ): { ok: boolean; error?: string } => {
+    const code = resolveActiveCode();
+    const currentRoom = (code ? readRoom(code) : null) || room;
+    if (!currentRoom) {
+      return { ok: false, error: "Sesi ruang belum ditemukan." };
+    }
+    const existingList = currentRoom.customScenarios || [];
+    const target = existingList.find((s) => s.id === id);
+    if (!target) {
+      return { ok: false, error: "Pertanyaan kustom tidak ditemukan." };
+    }
+
+    const check = validateCustomInput(input);
+    if (!check.ok) return check;
+
+    const currentRole = (sessionStorage.getItem(ROLE_KEY) as Role) || role;
+    const cleanCategory = input.categoryLabel.trim();
+    const nextVer = (target.version ?? 1) + 1;
+    const nextRev = (currentRoom.customModuleRevision || 0) + 1;
+
+    const updatedScenario: DilemmaScenario = {
+      ...target,
+      category: cleanCategory,
+      categoryLabel: cleanCategory,
+      title: input.title.trim(),
+      description: (input.description || "").trim() || undefined,
+      questionType: input.questionType,
+      version: nextVer,
+      updatedAt: new Date().toISOString(),
+      options:
+        input.questionType === "abc" && input.options
+          ? (["A", "B", "C"] as OptionKey[]).map((key) => ({
+              key,
+              text:
+                input.options?.find((o) => o.key === key)?.text.trim() || "",
+            }))
+          : [],
+    };
+
+    const nextHostAnswers = { ...currentRoom.host.answers };
+    const nextGuestAnswers = { ...currentRoom.guest.answers };
+    delete nextHostAnswers[id];
+    delete nextGuestAnswers[id];
+
+    const next: RoomState = {
+      ...currentRoom,
+      customScenarios: existingList.map((s) =>
+        s.id === id ? updatedScenario : s
+      ),
+      customModuleRevision: nextRev,
+      compromises: (currentRoom.compromises || []).filter(
+        (c) => c.scenarioId !== id
+      ),
+      completedModules: (currentRoom.completedModules || []).filter(
+        (m) => m !== 5
+      ),
+      host: {
+        ...currentRoom.host,
+        answers: nextHostAnswers,
+        lockedModules: (currentRoom.host.lockedModules || []).filter(
+          (m) => m !== 5
+        ),
+      },
+      guest: {
+        ...currentRoom.guest,
+        answers: nextGuestAnswers,
+        lockedModules: (currentRoom.guest.lockedModules || []).filter(
+          (m) => m !== 5
+        ),
+      },
+    };
+
+    writeRoom(next);
+    void syncRoomToSupabase(next, currentRole);
+    return { ok: true };
+  };
+
+  const deleteCustomScenario = (id: number): { ok: boolean } => {
+    const code = resolveActiveCode();
+    const currentRoom = (code ? readRoom(code) : null) || room;
+    if (!currentRoom) return { ok: false };
+
+    const currentRole = (sessionStorage.getItem(ROLE_KEY) as Role) || role;
+    const remaining = (currentRoom.customScenarios || []).filter(
+      (s) => s.id !== id
+    );
+    const updatedDeleted = Array.from(
+      new Set([...(currentRoom.deletedCustomIds || []), id])
+    ).sort((a, b) => a - b);
+
+    const nextHostAnswers = { ...currentRoom.host.answers };
+    const nextGuestAnswers = { ...currentRoom.guest.answers };
+    delete nextHostAnswers[id];
+    delete nextGuestAnswers[id];
+
+    const becameEmpty = remaining.length === 0;
+    const nextRev = becameEmpty
+      ? (currentRoom.customModuleRevision || 0) + 1
+      : currentRoom.customModuleRevision || 0;
+
+    const next: RoomState = {
+      ...currentRoom,
+      customScenarios: remaining,
+      deletedCustomIds: updatedDeleted,
+      customModuleRevision: nextRev,
+      compromises: (currentRoom.compromises || []).filter(
+        (c) => c.scenarioId !== id
+      ),
+      completedModules: becameEmpty
+        ? (currentRoom.completedModules || []).filter((m) => m !== 5)
+        : currentRoom.completedModules || [],
+      host: {
+        ...currentRoom.host,
+        answers: nextHostAnswers,
+        lockedModules: becameEmpty
+          ? (currentRoom.host.lockedModules || []).filter((m) => m !== 5)
+          : currentRoom.host.lockedModules || [],
+      },
+      guest: {
+        ...currentRoom.guest,
+        answers: nextGuestAnswers,
+        lockedModules: becameEmpty
+          ? (currentRoom.guest.lockedModules || []).filter((m) => m !== 5)
+          : currentRoom.guest.lockedModules || [],
+      },
+    };
+
+    writeRoom(next);
+    void syncRoomToSupabase(next, currentRole);
+    return { ok: true };
+  };
+
   const isModuleUnlocked = (moduleId: number) => {
-    if (moduleId === 1) return true;
+    if (moduleId === 1 || moduleId === 5) return true;
     const currentCompleted = room?.completedModules || [];
     return currentCompleted.includes(moduleId - 1);
   };
@@ -1150,6 +1686,7 @@ export const useRoom = (explicitCode?: string) => {
     partnerSignature: partner?.signature,
     compromises: room?.compromises || [],
     completedModules: room?.completedModules || [],
+    customScenarios: room?.customScenarios || [],
     saveAnswer,
     lockAnswers,
     simulatePartnerLock: (modId: number = 1) =>
@@ -1157,6 +1694,9 @@ export const useRoom = (explicitCode?: string) => {
     saveSignature,
     saveCompromise,
     markModuleCompleted,
+    addCustomScenario,
+    updateCustomScenario,
+    deleteCustomScenario,
     isModuleUnlocked,
     isUserLocked,
     isPartnerLocked,

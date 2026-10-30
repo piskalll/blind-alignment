@@ -1,3 +1,5 @@
+export type QuestionType = "abc" | "essay";
+
 export interface DilemmaScenario {
   id: number;
   moduleId: number;
@@ -5,6 +7,10 @@ export interface DilemmaScenario {
   categoryLabel: string;
   title: string;
   description?: string;
+  questionType?: QuestionType;
+  createdBy?: "host" | "guest";
+  version?: number;
+  updatedAt?: string;
   options: {
     key: "A" | "B" | "C";
     text: string;
@@ -26,6 +32,23 @@ export interface ModuleDefinition {
   description: string;
   estimatedTime: string;
 }
+
+export const MAX_CUSTOM_SCENARIOS = 15;
+
+export const CUSTOM_MODULE_META: ModuleDefinition = {
+  id: 5,
+  title: "Pertanyaan Kustom Pasangan",
+  subtitle:
+    "Topik spesifik buatan Anda dan pasangan (pilihan A/B/C maupun esai terbuka) dengan proteksi Segel Ganda.",
+  description:
+    "Ruang kolaboratif khusus pasangan untuk menyusun hingga 15 pertanyaan tambahan sesuai kondisi keluarga, karier, dan rencana hidup kalian.",
+  estimatedTime: "Fleksibel (1-15 soal)",
+};
+
+export const getModuleMeta = (moduleId: number): ModuleDefinition => {
+  if (moduleId === 5) return CUSTOM_MODULE_META;
+  return MODULES.find((m) => m.id === moduleId) || MODULES[0];
+};
 
 export const MODULES: ModuleDefinition[] = [
   {
