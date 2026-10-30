@@ -15,12 +15,9 @@ import {
   SlidersHorizontal,
   MessageCircle,
   Home,
-  Users,
 } from "lucide-react";
 import {
   useRoom,
-  activateRoomSession,
-  simulatePartnerLock,
   type Answer,
 } from "../lib/sessionStore";
 import { SCENARIOS, MODULES } from "../data/scenarios";
@@ -101,11 +98,6 @@ export const DashboardPage: React.FC<DashboardProps> = ({
     }
   };
 
-  const handleSwitchRole = () => {
-    const nextRole = role === "host" ? "guest" : "host";
-    activateRoomSession(roomCode, nextRole);
-  };
-
   return (
     <div className="min-h-screen bg-[#F8FAF7] text-[#1E293B] flex flex-col">
       <AppHeader
@@ -160,18 +152,6 @@ export const DashboardPage: React.FC<DashboardProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={handleSwitchRole}
-              className="min-h-[44px] px-3.5 py-2 rounded-lg border border-[#CBD5E1] bg-[#FFFFFF] hover:bg-[#F1F5F9] text-xs font-bold text-[#1E293B] flex items-center gap-1.5 cursor-pointer"
-              title="Ganti sudut pandang antara Host dan Guest pada perangkat ini"
-            >
-              <Users className="w-4 h-4 text-[#0F766E]" />
-              <span>
-                Beralih ke Sudut Pandang {role === "host" ? partnerName : myName}
-              </span>
-            </button>
-
             <button
               type="button"
               onClick={() => {
@@ -300,24 +280,15 @@ export const DashboardPage: React.FC<DashboardProps> = ({
                 <Lock className="w-3.5 h-3.5 text-[#0F766E]" />
                 <span>Segel Dual-Blind aktif tanpa kebocoran jawaban</span>
               </div>
-              {!isActivePartnerLocked && !allModulesCompleted && (
-                <button
-                  type="button"
-                  onClick={() => simulatePartnerLock(activeModuleId)}
-                  className="font-bold text-[#0F766E] hover:underline cursor-pointer"
-                >
-                  Simulasikan {partnerName} Selesai (Mode Uji)
-                </button>
-              )}
             </div>
           </div>
 
           {/* Primary Action Card */}
-          <div className="lg:col-span-5 bg-[#1E293B] text-[#FFFFFF] rounded-xl p-6 flex flex-col justify-between border border-[#334155]">
+          <div className="lg:col-span-5 bg-[#F0FDFA] text-[#1E293B] rounded-xl p-6 flex flex-col justify-between border-2 border-[#0F766E]">
             <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs text-[#CBD5E1] font-mono">
+              <div className="flex items-center justify-between text-xs text-[#0F766E] font-mono font-bold">
                 <span className="flex items-center gap-1.5">
-                  <Clock className="w-4 h-4 text-[#5EEAD4]" />
+                  <Clock className="w-4 h-4 text-[#0F766E]" />
                   <span>
                     {allModulesCompleted
                       ? "KURIKULUM LENGKAP"
@@ -327,7 +298,7 @@ export const DashboardPage: React.FC<DashboardProps> = ({
                 <span>MOD-0{activeModuleId}</span>
               </div>
 
-              <h3 className="text-xl font-bold tracking-tight">
+              <h3 className="text-xl font-extrabold tracking-tight text-[#1E293B]">
                 {allModulesCompleted
                   ? "Seluruh 4 Modul Selesai Diratifikasi"
                   : isActiveBothLocked
@@ -339,13 +310,13 @@ export const DashboardPage: React.FC<DashboardProps> = ({
                   : `Mulai Modul ${activeModuleId}: ${activeModuleMeta.title}`}
               </h3>
 
-              <p className="text-xs sm:text-sm text-[#CBD5E1] leading-relaxed">
+              <p className="text-xs sm:text-sm text-[#475569] leading-relaxed">
                 {allModulesCompleted
                   ? "Dokumen Piagam Kesepakatan Pra-Nikah untuk seluruh 4 pilar telah ditandatangani dan siap dicetak."
                   : isActiveBothLocked
                   ? `Anda dan ${partnerName} telah mengunci seluruh 10 skenario. Buka halaman Hasil untuk meninjau kecocokan dan menulis kompromi.`
                   : isActiveUserLocked
-                  ? `Pilihan Anda sudah aman di balik segel. Anda dapat memantau ruang tunggu atau mensimulasikan jawaban pasangan.`
+                  ? `Pilihan Anda sudah aman di balik segel. Anda dapat memantau ruang tunggu atau mengirim pengingat ke pasangan.`
                   : activeModuleMeta.subtitle}
               </p>
             </div>
@@ -373,7 +344,7 @@ export const DashboardPage: React.FC<DashboardProps> = ({
                 <button
                   type="button"
                   onClick={() => handleOpenWaiting(activeModuleId)}
-                  className="w-full min-h-[48px] py-3 px-5 bg-[#334155] hover:bg-[#475569] text-[#FFFFFF] rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                  className="w-full min-h-[48px] py-3 px-5 bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
                 >
                   <Clock className="w-4 h-4" />
                   <span>Buka Ruang Tunggu Segel</span>
@@ -511,7 +482,7 @@ export const DashboardPage: React.FC<DashboardProps> = ({
                           <button
                             type="button"
                             onClick={() => handleOpenWaiting(mod.id)}
-                            className="min-h-[44px] px-4 py-2 bg-[#1E293B] hover:bg-[#0F172A] text-[#FFFFFF] rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                            className="min-h-[44px] px-4 py-2 bg-[#ECFDF5] hover:bg-[#D1FAE5] text-[#065F46] border border-[#A7F3D0] rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                           >
                             <Clock className="w-3.5 h-3.5" />
                             <span>Buka Ruang Tunggu</span>

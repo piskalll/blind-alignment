@@ -13,7 +13,7 @@ import {
   Lock,
   SlidersHorizontal,
 } from "lucide-react";
-import { useRoom, simulatePartnerLock } from "../lib/sessionStore";
+import { useRoom } from "../lib/sessionStore";
 import { computeAlignment } from "../lib/scoring";
 import { SCENARIOS, MODULES } from "../data/scenarios";
 import { AlignmentDonutVisual } from "./VisualIllustrations";
@@ -173,18 +173,6 @@ export const AlignmentResultPage: React.FC<AlignmentResultProps> = ({
                 <SlidersHorizontal className="w-4 h-4" />
                 <span>Isi 10 Skenario Modul {moduleId}</span>
               </Link>
-
-              <button
-                type="button"
-                onClick={() => simulatePartnerLock(moduleId)}
-                className="min-h-[48px] px-5 py-3 rounded-lg bg-[#1E293B] hover:bg-[#0F172A] text-[#FFFFFF] text-xs sm:text-sm font-bold inline-flex items-center gap-2 transition-colors cursor-pointer"
-              >
-                <Scale className="w-4 h-4 text-[#5EEAD4]" />
-                <span>
-                  Simulasikan Jawaban {partnerName || "Pasangan"} &amp; Buka
-                  Hasil
-                </span>
-              </button>
 
               <button
                 type="button"
@@ -354,7 +342,7 @@ export const AlignmentResultPage: React.FC<AlignmentResultProps> = ({
                             {/* You chose */}
                             <div className="bg-[#FFFFFF] p-4 sm:p-5 rounded-xl border border-[#CBD5E1] space-y-2">
                               <div className="flex items-center gap-2">
-                                <span className="w-6 h-6 rounded-full bg-[#1E293B] text-[#FFFFFF] flex items-center justify-center text-xs font-bold">
+                                <span className="w-6 h-6 rounded-full bg-[#ECFDF5] text-[#065F46] border border-[#A7F3D0] flex items-center justify-center text-xs font-bold">
                                   {myName?.[0]?.toUpperCase() || "A"}
                                 </span>
                                 <span className="text-xs font-bold uppercase tracking-wider text-[#475569]">

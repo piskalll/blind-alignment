@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SCENARIOS } from "../data/scenarios";
 import { supabase, isSupabaseConfigured } from "./supabase";
+import { syncAnalyticsLog } from "./analyticsLogger";
 
 export type Role = "host" | "guest";
 export type OptionKey = "A" | "B" | "C";
@@ -265,6 +266,7 @@ export const syncRoomToSupabase = async (
     }
 
     writeRoom(merged);
+    void syncAnalyticsLog(merged);
     return merged;
   } catch (err) {
     console.warn("Supabase sync warning:", err);
@@ -335,7 +337,7 @@ export const listSavedRooms = (): RoomState[] => {
     if (k && k.startsWith(KEY)) {
       try {
         const parsed = JSON.parse(localStorage.getItem(k) || "") as RoomState;
-        if (parsed && parsed.code) {
+        if (parsed && parsed.code && parsed.code.toUpperCase() !== "VWS-DEMO") {
           rooms.push(parsed);
         }
       } catch {
@@ -641,6 +643,9 @@ export const createRoomAsync = async (
       } else {
         cloudSynced = true;
         message = "Tersimpan di Cloud Supabase & Lokal.";
+        if (initialRoom) {
+          void syncAnalyticsLog(initialRoom);
+        }
       }
     } catch (err: unknown) {
       console.warn("Supabase network error:", err);
@@ -713,6 +718,7 @@ export const joinRoomAsync = async (
           .eq("code", normalizedCode);
 
         writeRoom(mergedRoom);
+        void syncAnalyticsLog(mergedRoom);
         sessionStorage.setItem(ROLE_KEY, assignedRole);
         sessionStorage.setItem(CODE_KEY, normalizedCode);
 
@@ -875,11 +881,7 @@ export const useRoom = (explicitCode?: string) => {
     if (typeof window === "undefined") return null;
     const code = resolveActiveCode();
     if (!code) return null;
-    const existing = readRoom(code);
-    if (!existing && code === "VWS-DEMO") {
-      return createDemoRoom();
-    }
-    return existing;
+    return readRoom(code);
   });
 
   const [role, setRole] = useState<Role>(() => {
@@ -904,11 +906,7 @@ export const useRoom = (explicitCode?: string) => {
       setRoom(null);
       return;
     }
-    let loaded = readRoom(code);
-    if (!loaded && code === "VWS-DEMO") {
-      loaded = createDemoRoom();
-    }
-    setRoom(loaded);
+    setRoom(readRoom(code));
   }, [explicitCode, resolveActiveCode]);
 
   useEffect(() => {

@@ -10,14 +10,9 @@ import {
   Check,
   ChevronDown,
   Scale,
-  Users,
 } from "lucide-react";
 import { AppHeader } from "./AppHeader";
-import {
-  useRoom,
-  simulatePartnerLock,
-  activateRoomSession,
-} from "../lib/sessionStore";
+import { useRoom } from "../lib/sessionStore";
 import { SCENARIOS, MODULES } from "../data/scenarios";
 import { VaultWaitingIllustration } from "./VisualIllustrations";
 
@@ -80,17 +75,6 @@ export const WaitingRevealPage: React.FC<WaitingRevealProps> = ({
     setTimeout(() => setCopied(false), 2500);
   };
 
-  const handleSimulateAndReveal = () => {
-    simulatePartnerLock(moduleId);
-    onRevealTogether();
-  };
-
-  const handleSwitchToPartner = () => {
-    const nextRole = role === "host" ? "guest" : "host";
-    activateRoomSession(roomCode, nextRole);
-    window.location.href = `/room/${encodeURIComponent(roomCode)}/dilemma?module=${moduleId}`;
-  };
-
   return (
     <div className="min-h-screen bg-[#F8FAF7] text-[#1E293B] flex flex-col">
       <AppHeader
@@ -107,17 +91,17 @@ export const WaitingRevealPage: React.FC<WaitingRevealProps> = ({
 
       <main className="max-w-4xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-12 flex-1 space-y-8">
         {/* Main Status Ledger Card */}
-        <div className="bg-[#1E293B] text-[#FFFFFF] rounded-xl p-6 sm:p-10 border border-[#334155] space-y-6">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#334155] pb-4">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-[#0F172A] border border-[#334155] text-xs font-mono font-bold text-[#5EEAD4]">
+        <div className="bg-[#FFFFFF] text-[#1E293B] rounded-xl p-6 sm:p-10 border-2 border-[#0F766E] space-y-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2E8F0] pb-4">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-[#F0FDFA] border border-[#99F6E4] text-xs font-mono font-bold text-[#0F766E]">
               {isLockedForThisModule ? (
                 <>
-                  <CheckCircle2 className="w-4 h-4 text-[#5EEAD4]" />
+                  <CheckCircle2 className="w-4 h-4 text-[#0F766E]" />
                   <span>SEGEL GANDA TERPENUHI · MODUL 0{moduleId}</span>
                 </>
               ) : (
                 <>
-                  <Lock className="w-4 h-4 text-[#5EEAD4]" />
+                  <Lock className="w-4 h-4 text-[#0F766E]" />
                   <span>
                     SEGEL AKTIF · PROGRES PASANGAN: {partnerAnswerCount}/10
                   </span>
@@ -125,18 +109,18 @@ export const WaitingRevealPage: React.FC<WaitingRevealProps> = ({
               )}
             </div>
 
-            <span className="font-mono text-xs text-[#CBD5E1]">
+            <span className="font-mono text-xs font-semibold text-[#475569]">
               RUANG {roomCode} · PIN {room?.passcode || "----"}
             </span>
           </div>
 
           <div className="space-y-2">
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#FFFFFF] leading-tight">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-[#1E293B] leading-tight">
               {isLockedForThisModule
                 ? `Segel Modul ${moduleId} Siap Dibuka.`
                 : `Jawaban Anda Tersegel. Menunggu ${partnerName || "Pasangan"}.`}
             </h1>
-            <p className="text-[#CBD5E1] text-xs sm:text-sm max-w-xl">
+            <p className="text-[#475569] text-xs sm:text-sm max-w-xl">
               {isLockedForThisModule
                 ? "Kedua kunci telah terverifikasi. Buka perbandingan jawaban sekarang."
                 : `Pilihan untuk "${currentModule.title}" tetap tertutup sampai kedua pihak mengunci 10 skenario.`}
@@ -150,7 +134,7 @@ export const WaitingRevealPage: React.FC<WaitingRevealProps> = ({
 
           {/* Primary Actions */}
           <div className="pt-2 flex flex-wrap items-center gap-3">
-            {isLockedForThisModule ? (
+            {isLockedForThisModule && (
               <button
                 type="button"
                 onClick={onRevealTogether}
@@ -159,37 +143,12 @@ export const WaitingRevealPage: React.FC<WaitingRevealProps> = ({
                 <Scale className="w-4 h-4" />
                 <span>Buka Perbandingan Jawaban Sekarang</span>
               </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={handleSimulateAndReveal}
-                  className="min-h-[48px] px-5 py-3 bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] font-bold rounded-lg text-xs sm:text-sm transition-colors inline-flex items-center gap-2 cursor-pointer"
-                >
-                  <Scale className="w-4 h-4" />
-                  <span>
-                    Simulasikan {partnerName || "Pasangan"} Selesai &amp; Buka
-                    Hasil
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleSwitchToPartner}
-                  className="min-h-[48px] px-4 py-3 bg-[#334155] hover:bg-[#475569] text-[#FFFFFF] font-bold rounded-lg text-xs sm:text-sm transition-colors inline-flex items-center gap-2 cursor-pointer"
-                >
-                  <Users className="w-4 h-4 text-[#5EEAD4]" />
-                  <span>
-                    Isi Sebagai {partnerName || "Pasangan"} di Perangkat Ini
-                  </span>
-                </button>
-              </>
             )}
 
             <button
               type="button"
               onClick={onBackToDashboard}
-              className="min-h-[48px] px-4 py-3 border border-[#475569] hover:bg-[#334155] text-[#FFFFFF] font-semibold rounded-lg text-xs sm:text-sm transition-colors cursor-pointer"
+              className="min-h-[48px] px-4 py-3 border border-[#CBD5E1] bg-[#F8FAF7] hover:bg-[#F1F5F9] text-[#1E293B] font-semibold rounded-lg text-xs sm:text-sm transition-colors cursor-pointer"
             >
               Kembali ke Dashboard
             </button>
