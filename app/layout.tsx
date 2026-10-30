@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Toaster } from "sonner";
+import { MicrosoftClarity } from "./components/MicrosoftClarity";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -28,6 +29,7 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-full flex flex-col bg-[#F1F5F9] text-[#1E293B]">
+        <MicrosoftClarity />
         {children}
         <Toaster position="top-center" richColors />
       </body>
