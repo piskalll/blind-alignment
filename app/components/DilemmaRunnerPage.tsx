@@ -90,7 +90,7 @@ export const DilemmaRunnerPage: React.FC<DilemmaRunnerProps> = ({
                   aria-current={isCurrent ? "step" : undefined}
                   className={`min-w-[34px] h-8 px-2 rounded-md font-mono text-xs font-bold border transition-colors cursor-pointer flex items-center justify-center gap-1 ${
                     isCurrent
-                      ? "bg-[#1E293B] text-[#FFFFFF] border-[#1E293B]"
+                      ? "bg-[#0F766E] text-[#FFFFFF] border-[#0F766E]"
                       : isAnswered
                       ? "bg-[#ECFDF5] text-[#065F46] border-[#A7F3D0]"
                       : "bg-[#F8FAF7] text-[#475569] border-[#CBD5E1] hover:text-[#1E293B]"

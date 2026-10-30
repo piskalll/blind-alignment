@@ -18,6 +18,7 @@ import {
   FileSignature,
 } from "lucide-react";
 import { useTheme } from "../lib/sessionStore";
+import { BrandLogo } from "./BrandLogo";
 
 interface HeaderProps {
   roomCode?: string;
@@ -141,17 +142,7 @@ export const AppHeader: React.FC<HeaderProps> = ({
             className="flex items-center gap-2.5 group min-h-[44px] pr-2 rounded-lg shrink-0"
             title="Kembali ke Beranda VowSync"
           >
-            <div className="w-8 h-8 rounded-lg bg-[#1E293B] text-[#FFFFFF] flex items-center justify-center font-bold text-xs tracking-wider shrink-0 group-hover:bg-[#0F766E] transition-colors">
-              VS
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-[#1E293B] text-base leading-none tracking-tight">
-                VowSync
-              </span>
-              <span className="hidden sm:inline-block text-[10px] font-mono uppercase font-bold text-[#0F766E] tracking-wider px-1.5 py-0.5 bg-[#F0FDFA] border border-[#CCFBF1] rounded">
-                Dual-Blind
-              </span>
-            </div>
+            <BrandLogo />
           </Link>
 
           {activeRoomCode && (
@@ -188,7 +179,7 @@ export const AppHeader: React.FC<HeaderProps> = ({
           {showAvatars && (
             <div className="hidden sm:flex items-center gap-2 pl-2 border-l border-[#E2E8F0]">
               <div className="flex -space-x-1.5 overflow-hidden shrink-0">
-                <div className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#1E293B] text-[#FFFFFF] text-xs font-bold ring-2 ring-[#FFFFFF]">
+                <div className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#ECFDF5] text-[#065F46] border border-[#A7F3D0] text-xs font-bold ring-2 ring-[#FFFFFF]">
                   {initial1}
                 </div>
                 <div className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#0F766E] text-[#FFFFFF] text-xs font-bold ring-2 ring-[#FFFFFF]">
@@ -295,7 +286,7 @@ export const AppHeader: React.FC<HeaderProps> = ({
                     title={`Buka Modul ${mId}`}
                     className={`px-2 py-1 rounded font-mono text-xs font-bold transition-colors ${
                       isCurrentMod
-                        ? "bg-[#1E293B] text-[#FFFFFF]"
+                        ? "bg-[#0F766E] text-[#FFFFFF]"
                         : "text-[#475569] hover:text-[#1E293B] hover:bg-[#FFFFFF] border border-transparent hover:border-[#CBD5E1]"
                     }`}
                   >
@@ -366,7 +357,7 @@ export const AppHeader: React.FC<HeaderProps> = ({
                   onClick={() => setMobileMenuOpen(false)}
                   className={`min-h-[38px] px-3 py-1.5 rounded-md font-mono text-xs font-bold inline-flex items-center ${
                     mId === activeModuleId
-                      ? "bg-[#1E293B] text-[#FFFFFF]"
+                      ? "bg-[#0F766E] text-[#FFFFFF]"
                       : "bg-[#F1F5F9] text-[#1E293B] border border-[#CBD5E1]"
                   }`}
                 >

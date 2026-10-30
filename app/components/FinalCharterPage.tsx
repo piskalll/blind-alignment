@@ -172,19 +172,19 @@ export const FinalCharterPage: React.FC<FinalCharterProps> = ({
 
       <main className="max-w-6xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 space-y-6">
         {/* Ratification Header Banner */}
-        <div className="bg-[#1E293B] text-[#FFFFFF] rounded-xl p-6 sm:p-7 border border-[#334155] flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="bg-[#F0FDFA] text-[#1E293B] rounded-xl p-6 sm:p-7 border border-[#99F6E4] flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-start sm:items-center gap-4">
             <div className="w-11 h-11 rounded-lg bg-[#0F766E] text-[#FFFFFF] flex items-center justify-center shrink-0">
               <Check className="w-6 h-6" />
             </div>
             <div>
-              <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#5EEAD4] block">
+              <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#0F766E] block">
                 DOKUMEN KESEPAKATAN PRA-NIKAH · PASAL {articleRoman}
               </span>
-              <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
+              <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-[#1E293B]">
                 Modul {moduleId} ({articleTitle}) Telah Disahkan
               </h1>
-              <p className="text-xs sm:text-sm text-[#CBD5E1] mt-0.5">
+              <p className="text-xs sm:text-sm text-[#475569] mt-0.5">
                 {clauses.length} butir kesepakatan tercatat pada Piagam.
                 {moduleId < 4
                   ? ` Modul ${moduleId + 1} kini telah terbuka di Dashboard.`
@@ -202,7 +202,7 @@ export const FinalCharterPage: React.FC<FinalCharterProps> = ({
                 className={`min-h-[40px] px-3 py-1.5 rounded-lg font-mono text-xs font-bold border transition-colors inline-flex items-center ${
                   mId === moduleId
                     ? "bg-[#0F766E] text-[#FFFFFF] border-[#0F766E]"
-                    : "bg-[#0F172A] text-[#CBD5E1] border-[#334155] hover:text-[#FFFFFF]"
+                    : "bg-[#FFFFFF] text-[#475569] border-[#CBD5E1] hover:border-[#0F766E] hover:text-[#0F766E]"
                 }`}
               >
                 Pasal {romanNumerals[mId - 1]}
@@ -295,7 +295,7 @@ export const FinalCharterPage: React.FC<FinalCharterProps> = ({
               <div className="p-4 rounded-xl border border-[#CBD5E1] bg-[#F8FAF7] space-y-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-full bg-[#1E293B] text-[#FFFFFF] flex items-center justify-center font-bold text-xs">
+                    <div className="w-7 h-7 rounded-full bg-[#ECFDF5] text-[#065F46] border border-[#A7F3D0] flex items-center justify-center font-bold text-xs">
                       {hostName?.[0]?.toUpperCase() || "H"}
                     </div>
                     <div>
@@ -421,9 +421,9 @@ export const FinalCharterPage: React.FC<FinalCharterProps> = ({
                 <button
                   type="button"
                   onClick={handleNextModule}
-                  className="w-full min-h-[48px] py-3 px-4 bg-[#1E293B] hover:bg-[#0F172A] text-[#FFFFFF] rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                  className="w-full min-h-[48px] py-3 px-4 bg-[#ECFDF5] hover:bg-[#D1FAE5] text-[#065F46] border border-[#A7F3D0] rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
                 >
-                  <BookOpen className="w-4 h-4 text-[#5EEAD4]" />
+                  <BookOpen className="w-4 h-4 text-[#065F46]" />
                   <span>Lanjut ke Modul {moduleId + 1}</span>
                 </button>
               )}
