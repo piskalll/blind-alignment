@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Lock, ShieldCheck, Check, PenLine, Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -105,23 +105,108 @@ export const DilemmaRunnerPage: React.FC<DilemmaRunnerProps> = ({
 
   const answer = me?.answers[scenario.id] ?? {};
   const choice = answer.choice;
-  const essayText = answer.essayText ?? "";
   const amount = answer.amount ?? scenario.slider?.defaultValue;
-  const note = answer.note ?? "";
 
-  const isCurrentAnswered = isScenarioAnswered(scenario, answer);
+  const [localEssay, setLocalEssay] = useState<string>(answer.essayText ?? "");
+  const [localNote, setLocalNote] = useState<string>(answer.note ?? "");
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Synchronize local draft state when switching between scenarios
+  useEffect(() => {
+    setLocalEssay(answer.essayText ?? "");
+    setLocalNote(answer.note ?? "");
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [scenario.id]);
+
+  // Combine committed answers with local draft so validation is instantaneous
+  const effectiveAnswer = {
+    ...answer,
+    ...(isEssay ? { essayText: localEssay } : {}),
+    note: localNote,
+  };
+
+  const isCurrentAnswered = isScenarioAnswered(scenario, effectiveAnswer);
   const answeredCount = scenariosToUse.filter((s) =>
-    isScenarioAnswered(s, me?.answers[s.id])
+    s.id === scenario.id
+      ? isScenarioAnswered(s, effectiveAnswer)
+      : isScenarioAnswered(s, me?.answers[s.id])
   ).length;
 
-  const update = (patch: Partial<typeof answer>) =>
-    saveAnswer(scenario.id, { ...answer, ...patch });
+  const flushAnswer = useCallback(
+    (patch: Partial<typeof answer>) => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+      saveAnswer(scenario.id, {
+        ...answer,
+        ...(isEssay ? { essayText: localEssay } : {}),
+        note: localNote,
+        ...patch,
+      });
+    },
+    [scenario.id, answer, isEssay, localEssay, localNote, saveAnswer]
+  );
+
+  const handleEssayChange = (val: string) => {
+    setLocalEssay(val);
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      saveAnswer(scenario.id, {
+        ...answer,
+        essayText: val,
+        note: localNote,
+      });
+    }, 350);
+  };
+
+  const handleNoteChange = (val: string) => {
+    setLocalNote(val);
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = setTimeout(() => {
+      saveAnswer(scenario.id, {
+        ...answer,
+        ...(isEssay ? { essayText: localEssay } : {}),
+        note: val,
+      });
+    }, 350);
+  };
+
+  const update = (patch: Partial<typeof answer>) => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    saveAnswer(scenario.id, {
+      ...answer,
+      ...(isEssay ? { essayText: localEssay } : {}),
+      note: localNote,
+      ...patch,
+    });
+  };
 
   const handleNext = () => {
-    if (!isCurrentAnswered) return;
-    if (!isEssay && scenario.slider && answer.amount === undefined) {
-      update({ amount });
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
     }
+
+    const finalAnswer = {
+      ...answer,
+      ...(isEssay ? { essayText: localEssay } : {}),
+      note: localNote,
+      ...(!isEssay && scenario.slider && answer.amount === undefined
+        ? { amount }
+        : {}),
+    };
+    saveAnswer(scenario.id, finalAnswer);
+
+    if (!isScenarioAnswered(scenario, finalAnswer)) return;
+
     if (isLast) {
       const firstUnansweredIdx = scenariosToUse.findIndex((s) => {
         if (s.id === scenario.id) return false;
@@ -141,8 +226,18 @@ export const DilemmaRunnerPage: React.FC<DilemmaRunnerProps> = ({
     }
   };
 
-  const handleBack = () =>
+  const handleBack = () => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    saveAnswer(scenario.id, {
+      ...answer,
+      ...(isEssay ? { essayText: localEssay } : {}),
+      note: localNote,
+    });
     safeIndex === 0 ? onBack() : setIndex(safeIndex - 1);
+  };
 
   return (
     <div className="min-h-screen bg-[#F8FAF7] text-[#1E293B] flex flex-col">
@@ -258,7 +353,7 @@ export const DilemmaRunnerPage: React.FC<DilemmaRunnerProps> = ({
                 Jawaban Esai Terbuka Anda (Wajib Diisi)
               </label>
               <span className="font-mono text-xs font-semibold text-[#475569]">
-                {essayText.trim().length}/1000 karakter
+                {localEssay.trim().length}/1000 karakter
               </span>
             </div>
 
@@ -273,12 +368,13 @@ export const DilemmaRunnerPage: React.FC<DilemmaRunnerProps> = ({
 
             <textarea
               id="essay-answer"
-              value={essayText}
-              onChange={(e) => update({ essayText: e.target.value })}
-              rows={5}
+              value={localEssay}
+              onChange={(e) => handleEssayChange(e.target.value)}
+              onBlur={() => flushAnswer({ essayText: localEssay })}
+              rows={6}
               maxLength={1000}
               placeholder="Tuliskan pandangan, harapan, atau batasan yang paling jujur menurut Anda untuk dibahas bersama pasangan..."
-              className="w-full p-3.5 text-sm sm:text-base rounded-lg border border-[#CBD5E1] bg-[#F8FAF7] text-[#1E293B] focus:border-[#0F766E] leading-relaxed"
+              className="w-full p-4 text-sm sm:text-base rounded-xl border-2 border-[#CBD5E1] bg-[#FFFFFF] text-[#1E293B] focus:border-[#0F766E] leading-relaxed min-h-[140px] shadow-xs"
             />
           </div>
         ) : (
@@ -378,23 +474,24 @@ export const DilemmaRunnerPage: React.FC<DilemmaRunnerProps> = ({
               </label>
               <textarea
                 id="note"
-                value={note}
-                onChange={(e) => update({ note: e.target.value })}
+                value={localNote}
+                onChange={(e) => handleNoteChange(e.target.value)}
+                onBlur={() => flushAnswer({ note: localNote })}
                 rows={3}
                 placeholder="Tuliskan alasan atau kondisi khusus Anda. Catatan ini baru ditampilkan kepada pasangan setelah kedua pihak mengunci jawaban."
-                className="w-full p-3.5 text-sm rounded-lg border border-[#CBD5E1] bg-[#FFFFFF] text-[#1E293B] focus:border-[#0F766E]"
+                className="w-full p-3.5 text-sm sm:text-base rounded-lg border border-[#CBD5E1] bg-[#FFFFFF] text-[#1E293B] focus:border-[#0F766E]"
               />
             </div>
           </>
         )}
       </main>
 
-      <footer className="w-full bg-[#FFFFFF] border-t border-[#E2E8F0] px-4 sm:px-6 py-4">
+      <footer className="w-full bg-[#FFFFFF] border-t border-[#CBD5E1] px-4 sm:px-6 py-4 shadow-sm">
         <div className="max-w-3xl mx-auto flex items-center justify-between gap-3">
           <button
             type="button"
             onClick={handleBack}
-            className="min-h-[44px] px-4 py-2.5 border border-[#CBD5E1] bg-[#FFFFFF] hover:bg-[#F1F5F9] text-[#1E293B] text-xs font-bold rounded-lg transition-colors cursor-pointer"
+            className="min-h-[46px] px-4 py-2.5 border-2 border-[#CBD5E1] bg-[#FFFFFF] hover:bg-[#F1F5F9] text-[#1E293B] text-xs sm:text-sm font-bold rounded-lg transition-colors cursor-pointer"
           >
             {safeIndex === 0 ? "Kembali ke Dashboard" : "Skenario Sebelumnya"}
           </button>
@@ -403,7 +500,7 @@ export const DilemmaRunnerPage: React.FC<DilemmaRunnerProps> = ({
             type="button"
             onClick={handleNext}
             disabled={!isCurrentAnswered}
-            className="min-h-[44px] px-6 py-2.5 bg-[#0F766E] hover:bg-[#115E59] disabled:opacity-40 disabled:cursor-not-allowed text-[#FFFFFF] text-xs font-bold rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
+            className="min-h-[46px] px-6 py-2.5 bg-[#0F766E] hover:bg-[#115E59] disabled:opacity-40 disabled:cursor-not-allowed text-[#FFFFFF] text-xs sm:text-sm font-bold rounded-lg flex items-center gap-2 transition-colors cursor-pointer shadow-xs"
           >
             {isLast ? (
               <>

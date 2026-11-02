@@ -21,6 +21,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Menu,
+  LayoutDashboard,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -133,6 +134,15 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
   });
 
   const [tab, setTab] = useState<"create" | "join">("create");
+  const [activeSessionCode, setActiveSessionCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = (sessionStorage.getItem("vowsync:code") || "").trim().toUpperCase();
+    if (stored && stored !== "VWS-000") {
+      setActiveSessionCode(stored);
+    }
+  }, []);
   const [activeTrackTag, setActiveTrackTag] = useState<string | null>(null);
   const [createUsername, setCreateUsername] = useState("");
   const [createdRoomInfo, setCreatedRoomInfo] = useState<{
@@ -501,6 +511,17 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
           </nav>
 
           <div className="flex items-center gap-2 shrink-0">
+            {activeSessionCode && (
+              <button
+                type="button"
+                onClick={() => onSuccess(activeSessionCode)}
+                className="hidden sm:inline-flex min-h-[44px] px-3.5 py-2 rounded-xl bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] text-xs font-bold items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
+              >
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                <span>Dashboard ({activeSessionCode})</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={toggleTheme}
@@ -568,6 +589,24 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
             aria-label="Navigasi Halaman Utama Mobile"
             className="md:hidden border-t border-[#E2E8F0] bg-[#FFFFFF] px-4 py-3 grid grid-cols-1 sm:grid-cols-2 gap-2 panel-enter"
           >
+            {activeSessionCode && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileNavOpen(false);
+                  onSuccess(activeSessionCode);
+                }}
+                className="min-h-[46px] px-4 py-2.5 rounded-xl bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] text-xs font-bold flex items-center justify-between gap-2 shadow-xs cursor-pointer col-span-full"
+              >
+                <span className="flex items-center gap-2">
+                  <LayoutDashboard className="w-4 h-4" />
+                  <span>Kembali ke Dashboard Aktif</span>
+                </span>
+                <span className="font-mono text-xs bg-[#115E59] px-2.5 py-1 rounded-md">
+                  {activeSessionCode}
+                </span>
+              </button>
+            )}
             {LANDING_NAV_ITEMS.map((item) => {
               const isActive = activeSection === item.id;
               return (
@@ -687,11 +726,33 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
                     </div>
                   </div>
 
+                  {/* Active Session Notification & Fast Return Button */}
+                  {activeSessionCode && (
+                    <div className="mb-5 p-4 rounded-xl bg-[#ECFDF5] border-2 border-[#A7F3D0] flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                      <div className="space-y-0.5">
+                        <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-[#065F46] block">
+                          Sesi Ruang Anda Sedang Aktif
+                        </span>
+                        <p className="text-xs sm:text-sm font-semibold text-[#1E293B]">
+                          Ruang <strong className="font-mono text-[#0F766E]">{activeSessionCode}</strong> sedang terbuka di peramban ini.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onSuccess(activeSessionCode)}
+                        className="min-h-[44px] px-4 py-2 bg-[#0F766E] hover:bg-[#115E59] text-[#FFFFFF] rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-xs shrink-0"
+                      >
+                        <LayoutDashboard className="w-4 h-4" />
+                        <span>Kembali ke Dashboard</span>
+                      </button>
+                    </div>
+                  )}
+
                   {/* Tab Switcher */}
                   <div
                     role="tablist"
                     aria-label="Pilih mode akses ruang"
-                    className="grid grid-cols-2 gap-1 p-1 bg-[#F1F5F9] rounded-lg border border-[#E2E8F0] mb-5"
+                    className="grid grid-cols-2 gap-2 p-1.5 bg-[#F1F5F9] rounded-xl border border-[#CBD5E1] mb-5"
                   >
                     <button
                       type="button"
@@ -701,26 +762,26 @@ export const JoinRoomPage: React.FC<JoinRoomProps> = ({ onSuccess }) => {
                         setTab("create");
                         setCreatedRoomInfo(null);
                       }}
-                      className={`min-h-[44px] py-2 px-3 rounded-md text-xs font-bold transition-colors cursor-pointer ${
+                      className={`min-h-[46px] py-2.5 px-3 rounded-lg text-xs sm:text-sm font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                         tab === "create"
-                          ? "bg-[#FFFFFF] text-[#0F766E] border border-[#99F6E4]"
-                          : "text-[#475569] hover:text-[#1E293B]"
+                          ? "bg-[#0F766E] text-[#FFFFFF] shadow-xs"
+                          : "bg-[#FFFFFF] text-[#1E293B] border border-[#CBD5E1] hover:bg-[#F8FAF7]"
                       }`}
                     >
-                      Buat Ruang Baru
+                      <span>Buat Ruang Baru</span>
                     </button>
                     <button
                       type="button"
                       role="tab"
                       aria-selected={tab === "join"}
                       onClick={() => setTab("join")}
-                      className={`min-h-[44px] py-2 px-3 rounded-md text-xs font-bold transition-colors cursor-pointer ${
+                      className={`min-h-[46px] py-2.5 px-3 rounded-lg text-xs sm:text-sm font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                         tab === "join"
-                          ? "bg-[#FFFFFF] text-[#0F766E] border border-[#99F6E4]"
-                          : "text-[#475569] hover:text-[#1E293B]"
+                          ? "bg-[#0F766E] text-[#FFFFFF] shadow-xs"
+                          : "bg-[#FFFFFF] text-[#1E293B] border border-[#CBD5E1] hover:bg-[#F8FAF7]"
                       }`}
                     >
-                      Gabung Ruang Pasangan
+                      <span>Gabung Ruang Pasangan</span>
                     </button>
                   </div>
 
