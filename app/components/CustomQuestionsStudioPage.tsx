@@ -74,7 +74,7 @@ export const CustomQuestionsStudioPage: React.FC<CustomQuestionsStudioProps> = (
   const encodedRoom = encodeURIComponent(activeRoomCode);
 
   const formRef = useRef<HTMLDivElement | null>(null);
-  const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const titleInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [questionType, setQuestionType] = useState<QuestionType>("abc");
@@ -617,40 +617,50 @@ export const CustomQuestionsStudioPage: React.FC<CustomQuestionsStudioProps> = (
 
               {/* Question Title */}
               <div className="space-y-1.5">
-                <label
-                  htmlFor="custom-title-input"
-                  className="block text-xs font-bold uppercase tracking-wider text-[#1E293B]"
-                >
-                  Judul / Pokok Pertanyaan
-                </label>
-                <input
+                <div className="flex items-center justify-between">
+                  <label
+                    htmlFor="custom-title-input"
+                    className="block text-xs font-bold uppercase tracking-wider text-[#1E293B]"
+                  >
+                    Judul / Pokok Pertanyaan
+                  </label>
+                  <span className="font-mono text-[11px] text-[#64748B]">
+                    {title.length}/140
+                  </span>
+                </div>
+                <textarea
                   ref={titleInputRef}
                   id="custom-title-input"
-                  type="text"
+                  rows={2}
                   maxLength={140}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Contoh: Batas Cicilan Kendaraan di Tahun Pertama"
-                  className="w-full min-h-[44px] px-3.5 py-2 rounded-lg border border-[#CBD5E1] bg-[#FFFFFF] text-sm font-semibold text-[#1E293B] focus:border-[#0F766E]"
+                  placeholder="Contoh: Batas Cicilan Kendaraan di Tahun Pertama atau Aturan Tempat Tinggal Bersama"
+                  className="w-full min-h-[58px] p-3.5 rounded-xl border-2 border-[#CBD5E1] bg-[#FFFFFF] text-sm sm:text-base font-semibold text-[#1E293B] focus:border-[#0F766E] leading-relaxed shadow-xs"
                 />
               </div>
 
               {/* Description / Context */}
               <div className="space-y-1.5">
-                <label
-                  htmlFor="custom-desc-input"
-                  className="block text-xs font-bold uppercase tracking-wider text-[#1E293B]"
-                >
-                  Konteks Situasi (Opsional)
-                </label>
+                <div className="flex items-center justify-between">
+                  <label
+                    htmlFor="custom-desc-input"
+                    className="block text-xs font-bold uppercase tracking-wider text-[#1E293B]"
+                  >
+                    Konteks Situasi (Opsional)
+                  </label>
+                  <span className="font-mono text-[11px] text-[#64748B]">
+                    {description.length}/320
+                  </span>
+                </div>
                 <textarea
                   id="custom-desc-input"
-                  rows={2}
+                  rows={4}
                   maxLength={320}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Jelaskan situasi konkret yang ingin kalian sepakati..."
-                  className="w-full p-3 rounded-lg border border-[#CBD5E1] bg-[#FFFFFF] text-xs sm:text-sm text-[#1E293B] focus:border-[#0F766E]"
+                  placeholder="Jelaskan situasi konkret yang ingin kalian sepakati agar pasangan paham latar belakang pertanyaan ini..."
+                  className="w-full min-h-[100px] p-3.5 rounded-xl border-2 border-[#CBD5E1] bg-[#FFFFFF] text-sm sm:text-base text-[#1E293B] focus:border-[#0F766E] leading-relaxed shadow-xs"
                 />
               </div>
 
@@ -683,7 +693,7 @@ export const CustomQuestionsStudioPage: React.FC<CustomQuestionsStudioProps> = (
                         value={optionA}
                         onChange={(e) => setOptionA(e.target.value)}
                         placeholder="Tulis bunyi pilihan A..."
-                        className="w-full min-h-[44px] px-3.5 py-2 rounded-lg border border-[#CBD5E1] bg-[#FFFFFF] text-xs sm:text-sm text-[#1E293B] focus:border-[#0F766E]"
+                        className="w-full min-h-[48px] px-3.5 py-2.5 rounded-lg border-2 border-[#CBD5E1] bg-[#FFFFFF] text-sm sm:text-base text-[#1E293B] focus:border-[#0F766E] shadow-xs"
                       />
                     </div>
 
@@ -701,7 +711,7 @@ export const CustomQuestionsStudioPage: React.FC<CustomQuestionsStudioProps> = (
                         value={optionB}
                         onChange={(e) => setOptionB(e.target.value)}
                         placeholder="Tulis bunyi pilihan B..."
-                        className="w-full min-h-[44px] px-3.5 py-2 rounded-lg border border-[#CBD5E1] bg-[#FFFFFF] text-xs sm:text-sm text-[#1E293B] focus:border-[#0F766E]"
+                        className="w-full min-h-[48px] px-3.5 py-2.5 rounded-lg border-2 border-[#CBD5E1] bg-[#FFFFFF] text-sm sm:text-base text-[#1E293B] focus:border-[#0F766E] shadow-xs"
                       />
                     </div>
 
@@ -719,7 +729,7 @@ export const CustomQuestionsStudioPage: React.FC<CustomQuestionsStudioProps> = (
                         value={optionC}
                         onChange={(e) => setOptionC(e.target.value)}
                         placeholder="Tulis bunyi pilihan C..."
-                        className="w-full min-h-[44px] px-3.5 py-2 rounded-lg border border-[#CBD5E1] bg-[#FFFFFF] text-xs sm:text-sm text-[#1E293B] focus:border-[#0F766E]"
+                        className="w-full min-h-[48px] px-3.5 py-2.5 rounded-lg border-2 border-[#CBD5E1] bg-[#FFFFFF] text-sm sm:text-base text-[#1E293B] focus:border-[#0F766E] shadow-xs"
                       />
                     </div>
                   </div>
@@ -739,7 +749,7 @@ export const CustomQuestionsStudioPage: React.FC<CustomQuestionsStudioProps> = (
               <button
                 type="submit"
                 disabled={isAtCapacity}
-                className="w-full min-h-[48px] px-5 py-3 rounded-lg bg-[#0F766E] hover:bg-[#115E59] disabled:opacity-40 disabled:cursor-not-allowed text-[#FFFFFF] text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                className="w-full min-h-[50px] px-5 py-3 rounded-xl bg-[#0F766E] hover:bg-[#115E59] disabled:opacity-40 disabled:cursor-not-allowed text-[#FFFFFF] text-sm sm:text-base font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer shadow-xs"
               >
                 {editingId !== null ? (
                   <>
